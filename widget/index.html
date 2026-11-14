@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>tr('EdgeLink WoW')</title>
+<link rel="icon" type="image/svg+xml" href="resources/icon.svg" />
+<meta name="x-icue-widget-preview" content="resources/preview.png" />
+<meta name="x-icue-widget-group" content="EdgeLink" />
+<link rel="stylesheet" href="styles/edgelink.css" />
+</head>
+<body>
+<div id="app">
+  <nav id="nav">
+    <button data-view="bags" class="active"><span class="ico">&#127890;</span>Bags</button>
+    <button data-view="gear"><span class="ico">&#128737;</span>Gear</button>
+    <button data-view="quests"><span class="ico">&#10071;</span>Quests</button>
+    <button data-view="map"><span class="ico">&#129517;</span>Map</button>
+    <button data-view="prof"><span class="ico">&#9874;</span>Professions</button>
+    <button data-view="sess"><span class="ico">&#128202;</span>Session</button>
+  </nav>
+  <div id="top">
+    <div id="who">EdgeLink</div>
+    <div id="money"></div>
+    <div id="where"></div>
+    <div id="alert"></div>
+    <div id="wowbtns"><button data-win="2">Map</button><button data-win="1">Bags</button><button data-win="3">Character</button><button data-win="5">Quest log</button><button data-win="4">Sort bags</button></div>
+    <div id="status" class="warn">Connecting...</div>
+  </div>
+  <main id="main">
+    <section class="view active" id="v-bags">
+      <div id="bagbar"><div id="bagsum"></div><span class="sp"></span><button id="bagmode"></button></div>
+      <div id="bags"></div>
+      <div id="chars"></div>
+    </section>
+    <section class="view" id="v-gear">
+      <div id="gearwrap">
+        <div id="cf">
+          <div id="cfTitle"><span class="nm"></span><span class="lv"></span></div>
+          <div id="cfBody">
+            <div class="slots" id="gl"></div>
+            <div id="model">
+              <div class="stage">
+                <svg class="fig" viewBox="0 0 100 200" aria-hidden="true"><circle cx="50" cy="22" r="15"/><path d="M28 44 Q50 36 72 44 L84 100 L74 102 L68 66 L66 120 L72 196 L58 196 L52 128 L48 128 L42 196 L28 196 L34 120 L32 66 L26 102 L16 100 Z"/></svg>
+              </div>
+              <div id="weapons"></div>
+            </div>
+            <div class="slots" id="gr"></div>
+          </div>
+        </div>
+        <div id="stats"></div>
+      </div>
+    </section>
+    <section class="view" id="v-quests"><div id="qbar"><div class="sum"></div><button id="qexp">Expand all</button><button id="qcol">Collapse all</button></div><div id="quests"></div></section>
+    <section class="view" id="v-map">
+      <div id="maps">
+        <div class="mapframe" id="mf-zone"><button id="coordbtn">&#8982; Coordinates</button><span class="ml"></span><div class="hl"></div><canvas class="areas"></canvas><canvas class="gps"></canvas><div class="pins"></div><div class="marker"></div></div>
+        <div class="mapframe" id="mf-cont"><span class="ml"></span><div class="hl"></div><canvas class="gps"></canvas><div class="pins small"></div><div class="marker small"></div></div>
+        <div id="mapside">
+          <div id="mapinfo"></div>
+          <div id="route">
+            <div class="rh"><span class="rl"></span><button class="rx" data-act="clear">&#10005;</button></div>
+            <div class="rd"><span class="dist"></span><span class="turn"></span></div>
+            <div class="steps"></div>
+            <div class="rb"><button data-act="wp">Set waypoint in WoW</button><button data-act="track">Track in WoW</button><button data-act="mode"></button></div>
+          </div>
+          <div id="pinbar">
+            <button data-kind="F"><span class="pi F">&#9992;</span>Flight points</button>
+            <button data-kind="D"><span class="pi D">&#9873;</span>Dungeons</button>
+            <button data-kind="A"><span class="pi A">&#9733;</span>Points of interest</button>
+            <button data-kind="Q"><span class="pi Q">!</span>Quest objectives</button>
+            <button data-kind="gH"><span class="pi gH">&#10047;</span><span class="lb">Herbs</span></button>
+            <button data-kind="gM"><span class="pi gM">&#9670;</span><span class="lb">Ore</span></button>
+            <button data-kind="gF"><span class="pi gF">&#8776;</span><span class="lb">Fishing</span></button>
+            <button data-kind="gT"><span class="pi gT">&#9635;</span><span class="lb">Treasure</span></button>
+          </div>
+          <div id="zq"><div class="zqh"></div><div class="zql"></div></div>
+        </div>
+      </div>
+    </section>
+    <section class="view" id="v-prof"><div id="prof"><div id="skills"></div>
+      <div id="recipes"><div id="rbar"></div><div id="rlist"></div></div>
+      <div id="mats"></div></div></section>
+    <section class="view" id="v-sess"><div id="sess"><div id="scards"></div><div id="reps"></div></div></section>
+    <div id="keypad"><div class="kh">Go to coordinates in <span class="kz"></span></div><div class="kd"><span class="kx on">--.-</span><span>,</span><span class="ky">--.-</span></div>
+      <div class="kk"><button>1</button><button>2</button><button>3</button><button>4</button><button>5</button><button>6</button><button>7</button><button>8</button><button>9</button><button>.</button><button>0</button><button data-k="del">&#9003;</button></div>
+      <div class="ka"><button data-k="cancel">Cancel</button><button data-k="next">Next</button><button data-k="go">Route &#10148;</button></div></div>
+    <div id="tip"><div class="nm"></div><div class="meta"></div><div class="acts"></div></div>
+    <div id="toast"></div>
+  </main>
+</div>
+<script>
+(function () {
+  "use strict";
+  var params = new URLSearchParams(location.search);
+  var BRIDGE = params.get("bridge") ||
+    (location.protocol.indexOf("http") === 0 && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? "" : "http://localhost:8787");
+  var POLL_MS = 250, lastPosKey = "", inputAllowed = false;
+
+  var SLOT_NAMES = { 1: "Head", 2: "Neck", 3: "Shoulders", 4: "Shirt", 5: "Chest", 6: "Waist", 7: "Legs", 8: "Feet", 9: "Wrists",
+    10: "Hands", 11: "Finger", 12: "Finger", 13: "Trinket", 14: "Trinket", 15: "Back", 16: "Main Hand", 17: "Off Hand", 18: "Ranged", 19: "Tabard" };
+  var LEFT = [1, 2, 3, 15, 5, 4, 19, 9], RIGHT = [10, 6, 7, 8, 11, 12, 13, 14], WEAPONS = [16, 17, 18];
+  var CLASS_COLORS = { WARRIOR: "#c69b6d", PALADIN: "#f48cba", HUNTER: "#aad372", ROGUE: "#fff468", PRIEST: "#ffffff", SHAMAN: "#0070dd",
+    MAGE: "#3fc7eb", WARLOCK: "#8788ee", DRUID: "#ff7c0a", DEATHKNIGHT: "#c41e3a", MONK: "#00ff98", DEMONHUNTER: "#a330c9", EVOKER: "#33937f" };
+
+  var state = null, lastKey = "", selected = null, tipTimer = null;
+  var $ = function (id) { return document.getElementById(id); };
+  function store(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k, JSON.stringify(v)); } catch (e) { return null; } }
+
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function qcol(q) { return (q >= 0 && q <= 7) ? "var(--q" + q + ")" : "#2b3747"; }
+  function cap(s) { s = String(s || "").toLowerCase(); return s.charAt(0).toUpperCase() + s.slice(1); }
+  function initials(name) {
+    var w = String(name || "?").replace(/[^\p{L}\p{N} ]/gu, "").split(/\s+/).filter(Boolean);
+    return ((w[0] || "?")[0] + (w.length > 1 ? w[w.length - 1][0] : (w[0] || "")[1] || "")).toUpperCase();
+  }
+  function money(c) {
+    if (c == null) return "";
+    var g = Math.floor(c / 10000), s = Math.floor(c / 100) % 100, cu = c % 100;
+    return (g ? g.toLocaleString() + "g " : "") + s + "s " + cu + "c";
+  }
+  function durColor(p) { return p > 50 ? "var(--ok)" : p > 20 ? "var(--warn)" : "var(--bad)"; }
+  // Tile with icon (falls back to initials if the companion has no icon for the item)
+  function tile(it, extraClass, attrs) {
+    return '<div class="tile ' + (extraClass || "") + '" ' + (attrs || "") + ' style="border-color:' + qcol(it.q) + ";color:" + qcol(it.q) + '">' +
+      '<span class="ini">' + esc(initials(it.name)) + "</span>" +
+      (it.id ? '<img src="' + BRIDGE + "/icon/" + it.id + '" alt="" onerror="this.remove()" />' : "") +
+      (it.count > 1 ? '<span class="ct">' + it.count + "</span>" : "") + "</div>";
+  }
+  function durHtml(g) {
+    if (!g || !g.durMax) return "";
+    var p = Math.max(0, Math.min(100, Math.round(100 * g.dur / g.durMax)));
+    return '<div class="dur"><div class="bar"><i style="width:' + p + "%;background:" + durColor(p) + '"></i></div><span class="t">' + g.dur + " / " + g.durMax + "</span></div>";
+  }
+
+  // Navigation
+  function showView(name) {
+    document.querySelectorAll("#nav button").forEach(function (x) { x.classList.toggle("active", x.dataset.view === name); });
+    document.querySelectorAll(".view").forEach(function (v) { v.classList.toggle("active", v.id === "v-" + name); });
+    hideTip(); layout(); if (name === "map") drawRoute();
+    if (name === "sess") renderSession();
+    if (name === "bags" && bagMode === "all") loadChars();
+    if (name !== "map") $("keypad").style.display = "none";
+  }
+  Array.prototype.forEach.call(document.querySelectorAll("#nav button"), function (b) {
+    b.addEventListener("click", function () { showView(b.dataset.view); });
+  });
+
+  function renderHeader() {
+    var p = state && state.player;
+    $("who").innerHTML = p ? esc(p.name) + "<small>Lv " + esc(p.level) + " " + esc(p.race) + " " + esc(cap(p.class)) + "</small>" : "EdgeLink";
+    $("money").textContent = p ? money(p.money) : "";
+    var free = 0, total = 0;
+    (state && state.bags || []).forEach(function (b) { free += b.free; total += b.slots; });
+    $("where").textContent = p ? (p.zone + (p.subzone ? " • " + p.subzone : "") + (total ? "   |   " + free + "/" + total + " free" : "")) : "";
+    document.documentElement.style.setProperty("--cls", (p && CLASS_COLORS[p.class]) || "#c69b6d");
+    $("wowbtns").style.display = canControl() ? "flex" : "none";
+    renderAlert();
+  }
+  function hasCap(k) { return !!(state && state.pinCaps && state.pinCaps.indexOf(k) >= 0); }
+  function canControl() { return inputAllowed && hasCap("I"); }
+  $("wowbtns").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-win]"); if (!b) return;
+    sendGame("5" + b.dataset.win, b.textContent + " toggled in WoW");
+  });
+  // Things the minimap is pointing out right now (rares, treasures): a banner you can tap to route there
+  function nearbyKind(v) {
+    var a = String(v.atlas || "").toLowerCase();
+    if (a.indexOf("loot") >= 0 || a.indexOf("treasure") >= 0 || a.indexOf("chest") >= 0) return "Treasure";
+    if (a.indexOf("kill") >= 0 || a.indexOf("rare") >= 0 || a.indexOf("elite") >= 0 || a.indexOf("boss") >= 0) return "Rare";
+    return "Nearby";
+  }
+  var seenNearby = {};
+  function renderAlert() {
+    var list = state && state.nearby || [], el = $("alert");
+    if (!list.length) { el.style.display = "none"; el.innerHTML = ""; return; }
+    var v = list[0];
+    el.style.display = "flex";
+    el.innerHTML = '<b>' + nearbyKind(v) + '</b><span>' + esc(v.name) + (list.length > 1 ? " +" + (list.length - 1) : "") + '</span>' + (v.x != null ? '<button>Route &#10148;</button>' : "");
+    var key = v.name + "@" + v.map;
+    if (!seenNearby[key]) { seenNearby[key] = 1; el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); }
+  }
+  $("alert").addEventListener("click", function () {
+    var v = state && state.nearby && state.nearby[0]; if (!v || v.x == null) return;
+    setRoute({ map: v.map, x: v.x, y: v.y, label: v.name }); showView("map");
+  });
+
+  /* ---------- Bags ---------- */
+  var bagCols = 4;
+  function renderBags() {
+    var bags = state && state.bags || [];
+    if (!bags.length) { $("bags").innerHTML = '<div class="empty">No bag data yet.</div>'; return; }
+    var html = "";
+    bags.forEach(function (b) {
+      var bySlot = {};
+      b.items.forEach(function (it) { bySlot[it.slot] = it; });
+      var cols = Math.min(b.slots, bagCols);
+      html += '<div class="bag"><h3><span>' + esc(b.name) + "</span><span>" + b.free + "/" + b.slots + '</span></h3><div class="grid" style="grid-template-columns:repeat(' + cols + ',var(--tile))">';
+      for (var s = 1; s <= b.slots; s++) {
+        var it = bySlot[s];
+        if (!it) { html += '<div class="tile free"></div>'; continue; }
+        var key = b.bag + ":" + s;
+        html += tile(it, selected === key ? "sel" : "", 'data-key="' + key + '"');
+      }
+      html += "</div></div>";
+    });
+    $("bags").innerHTML = html;
+    renderBagBar();
+  }
+  var bagMode = "mine", chars = null;
+  function renderBagBar() {
+    var free = 0, total = 0, junk = 0, junkN = 0, vend = 0, ah = 0, anyAh = false;
+    (state && state.bags || []).forEach(function (b) {
+      free += b.free; total += b.slots;
+      b.items.forEach(function (it) {
+        if (it.sell) { vend += it.sell * it.count; if (it.q === 0) { junk += it.sell * it.count; junkN += it.count; } }
+        if (it.ah) { ah += it.ah * it.count; anyAh = true; }
+      });
+    });
+    $("bagsum").innerHTML = bagMode === "all" ? "<span><b>All characters</b> bags and bank, as last seen</span>" :
+      "<span><b>" + free + "</b> of " + total + " slots free</span>" +
+      "<span>Junk <b>" + (junkN ? money(junk) : "none") + "</b>" + (junkN ? " (" + junkN + ")" : "") + "</span>" +
+      "<span>Sells to vendors for <b>" + money(vend) + "</b></span>" +
+      (anyAh ? "<span>Auction value <b>" + money(ah) + "</b></span>" : hasCap("U") ? "<span>No auction prices yet (scan in Auctionator)</span>" : "");
+    $("bagmode").textContent = bagMode === "all" ? "This character" : "All characters";
+    $("bags").style.display = bagMode === "all" ? "none" : "";
+    $("chars").style.display = bagMode === "all" ? "" : "none";
+  }
+  $("bagmode").addEventListener("click", function () {
+    bagMode = bagMode === "all" ? "mine" : "all"; hideTip(); renderBagBar();
+    if (bagMode === "all") loadChars(); else layout();
+  });
+  function loadChars() {
+    fetch(BRIDGE + "/chars", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (j) { chars = j; renderChars(); })
+      .catch(function () { $("chars").innerHTML = '<div class="empty">Could not load characters.</div>'; });
+  }
+  function renderChars() {
+    var list = (chars || []).slice().sort(function (a, b) { return b.seen - a.seen; });
+    if (!list.length) { $("chars").innerHTML = '<div class="empty">No characters saved yet. Log in on each one with EdgeLink running.</div>'; return; }
+    $("chars").innerHTML = list.map(function (c, ci) {
+      var p = c.char.player || {}, items = {}, n = 0;
+      var add = function (it, where) {
+        var cur = items[it.id]; if (!cur) { items[it.id] = cur = { id: it.id, name: it.name, q: it.q, count: 0, bank: 0 }; }
+        cur.count += it.count; if (where) cur.bank += it.count;
+      };
+      (c.char.bags || []).forEach(function (b) { b.items.forEach(function (it) { add(it); }); });
+      (c.char.bank || []).forEach(function (it) { add(it, 1); });
+      var arr = Object.keys(items).map(function (k) { return items[k]; }).sort(function (a, b) { return (b.q - a.q) || (a.name < b.name ? -1 : 1); });
+      var age = Math.max(0, Date.now() / 1000 - c.seen), when = age < 120 ? "now" : age < 7200 ? Math.round(age / 60) + " min ago" : age < 172800 ? Math.round(age / 3600) + " h ago" : Math.round(age / 86400) + " days ago";
+      return '<div class="chr"><h3><span>' + esc(p.name || c.char.key) + ' <small>Lv ' + esc(p.level) + " " + esc(cap(p.class)) + '</small></span><span>' + money(p.money) + ' <small>' + when +
+        ((c.char.bank || []).length ? "" : " \u2022 bank not seen yet") + '</small></span></h3><div class="grid">' +
+        arr.map(function (it) { return tile(it, "", 'data-chr="' + ci + '" data-name="' + esc(it.name) + '" data-count="' + it.count + '" data-bank="' + it.bank + '"'); }).join("") + "</div></div>";
+    }).join("");
+  }
+  $("chars").addEventListener("click", function (e) {
+    var el = e.target.closest(".tile[data-chr]"); if (!el) return hideTip();
+    var bank = +el.dataset.bank, cnt = +el.dataset.count;
+    tipAt(el, esc(el.dataset.name), cnt + " total" + (bank ? "   \u2022   " + bank + " in the bank" : ""));
+  });
+
+  // Pick the largest tile size (and columns per bag) where every bag fits on screen.
+  function fitBags() {
+    var view = $("v-bags"), bags = state && state.bags || [];
+    if (!bags.length || !view.classList.contains("active")) return;
+    var W = view.clientWidth - 36, H = view.clientHeight - 28 - $("bagbar").offsetHeight - 8;
+    var GAP = 12, G = 6, PAD = 18, HEAD = 26, best = null;
+    [4, 5, 6, 7, 8, 10, 12].forEach(function (c) {
+      for (var t = 120; t >= 28; t -= 2) {
+        var rowW = 0, rowH = 0, total = 0, ok = true;
+        for (var i = 0; i < bags.length; i++) {
+          var cols = Math.min(bags[i].slots, c), rows = Math.ceil(bags[i].slots / cols);
+          var w = cols * t + (cols - 1) * G + PAD, h = HEAD + rows * t + (rows - 1) * G + PAD;
+          if (w > W) { ok = false; break; }
+          if (rowW > 0 && rowW + GAP + w > W) { total += rowH + GAP; rowW = 0; rowH = 0; }
+          rowW += (rowW > 0 ? GAP : 0) + w; rowH = Math.max(rowH, h);
+        }
+        total += rowH;
+        if (ok && total <= H) { if (!best || t > best.t) best = { t: t, c: c }; break; }
+      }
+    });
+    if (!best) best = { t: 28, c: 12 };
+    document.documentElement.style.setProperty("--tile", best.t + "px");
+    if (best.c !== bagCols) { bagCols = best.c; renderBags(); }
+  }
+
+  $("bags").addEventListener("click", function (e) {
+    var el = e.target.closest(".tile[data-key]");
+    if (!el) { selected = null; hideTip(); renderBags(); return; }
+    selected = (selected === el.dataset.key) ? null : el.dataset.key;
+    renderBags();
+    if (selected) showTip(findItem(selected), $("bags").querySelector('.tile[data-key="' + selected + '"]')); else hideTip();
+  });
+  function findItem(key) {
+    if (!key || !state) return null;
+    var parts = key.split(":").map(Number);
+    var bag = (state.bags || []).filter(function (b) { return b.bag === parts[0]; })[0];
+    return bag && bag.items.filter(function (i) { return i.slot === parts[1]; })[0];
+  }
+  function showTip(it, el) {
+    if (!it || !el) return hideTip();
+    var tip = $("tip"), main = $("main").getBoundingClientRect(), r = el.getBoundingClientRect();
+    tip.querySelector(".nm").innerHTML = '<span style="color:' + qcol(it.q) + '">' + esc(it.name) + "</span>";
+    tip.querySelector(".meta").textContent = (it.count > 1 ? "Stack of " + it.count + "   \u2022   " : "") +
+      (it.sell ? "Vendor " + money(it.sell * it.count) : "No vendor value") + (it.ah ? "   \u2022   Auction " + money(it.ah * it.count) : "");
+    tipTarget = null; tip.classList.remove("act"); tip.querySelector(".acts").innerHTML = "";
+    tip.style.display = "block";
+    var tw = tip.offsetWidth, th = tip.offsetHeight;
+    var x = Math.min(Math.max(8, r.left - main.left + r.width / 2 - tw / 2), main.width - tw - 8);
+    var y = r.top - main.top - th - 10;
+    if (y < 8) y = r.bottom - main.top + 10;
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(function () { selected = null; hideTip(); renderBags(); }, 6000);
+  }
+  function hideTip() { var t = $("tip"); t.style.display = "none"; t.classList.remove("act"); t.querySelector(".acts").innerHTML = ""; clearTimeout(tipTimer); }
+
+  /* ---------- Gear: in-game character window layout ---------- */
+  function gearSlot(s, g) {
+    if (!g) return '<div class="gs"><div class="tile free"><span class="lbl">' + SLOT_NAMES[s] + "</span></div></div>";
+    var bar = "", broken = false;
+    if (g.durMax) {
+      var p = Math.max(0, Math.min(100, Math.round(100 * g.dur / g.durMax)));
+      broken = p <= 20;
+      bar = '<div class="db"><i style="width:' + p + "%;background:" + durColor(p) + '"></i></div>';
+    }
+    return '<div class="gs">' + tile(g, broken ? "broken" : "", 'data-slot="' + s + '"').replace("</div>", bar + "</div>") + "</div>";
+  }
+  function renderGear() {
+    var gear = state && state.gear || [], by = {}, p = state && state.player;
+    gear.forEach(function (g) { by[g.slot] = g; });
+    $("gl").innerHTML = LEFT.map(function (s) { return gearSlot(s, by[s]); }).join("");
+    $("gr").innerHTML = RIGHT.map(function (s) { return gearSlot(s, by[s]); }).join("");
+    $("weapons").innerHTML = WEAPONS.map(function (s) { return gearSlot(s, by[s]); }).join("");
+    document.querySelector("#cfTitle .nm").textContent = p ? p.name : "";
+    document.querySelector("#cfTitle .lv").textContent = p ? "Level " + p.level + " " + p.race + " " + cap(p.class) : "";
+    renderStats(gear);
+  }
+  function renderStats(gear) {
+    var groups = [], byName = {};
+    (state && state.stats || []).forEach(function (t) {
+      if (!byName[t.group]) { byName[t.group] = []; groups.push(t.group); }
+      byName[t.group].push(t);
+    });
+    var cur = 0, max = 0, low = [];
+    gear.forEach(function (g) {
+      if (!g.durMax) return;
+      cur += g.dur; max += g.durMax;
+      var pc = Math.round(100 * g.dur / g.durMax);
+      if (pc <= 50) low.push(esc(g.name) + " " + pc + "%");
+    });
+    var pct = max ? Math.round(100 * cur / max) : 100;
+    var html = '<div class="sg"><h4>Durability</h4><div class="r"><span class="k">Overall</span><span class="v">' + pct + "%</span></div>" +
+      '<div class="bar"><i style="width:' + pct + "%;background:" + durColor(pct) + '"></i></div>' +
+      (low.length ? '<div class="note">Needs repair: ' + low.join(", ") + "</div>" : '<div class="note" style="color:var(--dim)">' + gear.length + " of 19 slots equipped</div>") + "</div>";
+    groups.forEach(function (gname) {
+      html += '<div class="sg"><h4>' + esc(gname) + "</h4>" + byName[gname].map(function (t) {
+        return '<div class="r"><span class="k">' + esc(t.label) + ':</span><span class="v ' + esc(t.color) + '">' + esc(t.value) + "</span></div>";
+      }).join("") + "</div>";
+    });
+    if (!groups.length) html += '<div class="sg"><h4>Stats</h4><div class="note" style="color:var(--dim)">Waiting for the addon (needs v0.5).</div></div>';
+    $("stats").innerHTML = html;
+  }
+  $("cf").addEventListener("click", function (e) {
+    var el = e.target.closest(".tile[data-slot]");
+    if (!el) return hideTip();
+    var g = (state.gear || []).filter(function (x) { return x.slot === +el.dataset.slot; })[0];
+    if (!g) return hideTip();
+    var meta = SLOT_NAMES[g.slot] + (g.durMax ? "   \u2022   Durability " + g.dur + " / " + g.durMax : "");
+    tipAt(el, '<span style="color:' + qcol(g.q) + '">' + esc(g.name) + "</span>", esc(meta));
+  });
+  function fitGear() {
+    var view = $("v-gear");
+    if (!view.classList.contains("active")) return;
+    var h = $("cfBody").clientHeight;
+    var gs = Math.max(44, Math.min(84, Math.floor((h - 7 * 8) / 8)));
+    document.documentElement.style.setProperty("--gs", gs + "px");
+  }
+
+  // Generic tooltip anchored to an element
+  function tipAt(el, titleHtml, metaHtml) {
+    var tip = $("tip"), main = $("main").getBoundingClientRect(), r = el.getBoundingClientRect();
+    tip.querySelector(".nm").innerHTML = titleHtml;
+    tip.querySelector(".meta").innerHTML = metaHtml;
+    tipTarget = null; tip.classList.remove("act"); tip.querySelector(".acts").innerHTML = "";
+    tip.style.display = "block";
+    var tw = tip.offsetWidth, th = tip.offsetHeight;
+    tip.style.left = Math.min(Math.max(8, r.left - main.left + r.width / 2 - tw / 2), main.width - tw - 8) + "px";
+    var y = r.top - main.top - th - 8; if (y < 8) y = r.bottom - main.top + 8;
+    tip.style.top = y + "px";
+    clearTimeout(tipTimer); tipTimer = setTimeout(hideTip, 8000);
+  }
+
+  /* ---------- Quests ---------- */
+  var openGroups = store("edgelink.quests.open") || null;   // { groupName: true/false }
+  var closedQuests = store("edgelink.quests.closed") || {};  // { questId: true }
+  function isOpen(group) {
+    if (openGroups && Object.prototype.hasOwnProperty.call(openGroups, group)) return openGroups[group];
+    var p = state && state.player;
+    return !!(p && (group === p.zone || group === p.subzone));  // default: only the current zone is open
+  }
+  function setOpen(group, open) { openGroups = openGroups || {}; openGroups[group] = open; store("edgelink.quests.open", openGroups); }
+  function renderQuests() {
+    var qs = state && state.quests || [];
+    var ready = qs.filter(function (q) { return q.complete === 1; }).length;
+    document.querySelector("#qbar .sum").textContent = qs.length + " quests   •   " + ready + " ready to turn in";
+    if (!qs.length) { $("quests").innerHTML = '<div class="empty">Quest log is empty.</div>'; return; }
+    var groups = [], byName = {};
+    qs.forEach(function (q) {
+      var g = q.group || "Other";
+      if (!byName[g]) { byName[g] = { name: g, quests: [] }; groups.push(byName[g]); }
+      byName[g].quests.push(q);
+    });
+    var html = "";
+    groups.forEach(function (g) {
+      var rdy = g.quests.filter(function (q) { return q.complete === 1; }).length;
+      html += '<div class="qgrp' + (isOpen(g.name) ? " open" : "") + '" data-group="' + esc(g.name) + '">' +
+        '<button class="qhd"><span class="chev">▶</span><span>' + esc(g.name) + "</span>" +
+        (rdy ? '<span class="rdy">' + rdy + " ready</span>" : "") + '<span class="cnt">' + g.quests.length + (g.quests.length === 1 ? " quest" : " quests") + "</span></button>" +
+        '<div class="qbody">';
+      g.quests.forEach(function (q) {
+        var doneN = q.objectives.filter(function (o) { return o.done; }).length;
+        var badge = q.complete === 1 ? '<span class="badge">Ready to turn in</span>' : q.complete === -1 ? '<span class="badge fail">Failed</span>'
+          : (q.objectives.length ? '<span class="prog">' + doneN + "/" + q.objectives.length + "</span>" : "");
+        html += '<div class="q' + (closedQuests[q.id] ? " closed" : "") + (route && route.qid === q.id ? " routed" : "") + '" data-qid="' + q.id + '"><div class="qt"><span class="lv">[' + esc(q.level) + "]</span><span>" + esc(q.title) + "</span>" + badge +
+          '<span class="qa"><button data-qact="track">Track</button><button data-qact="route">Route &#10148;</button></span></div>';
+        if (q.objectives.length) html += "<ul>" + q.objectives.map(function (o) { return '<li class="' + (o.done ? "done" : "") + '">' + esc(o.text) + "</li>"; }).join("") + "</ul>";
+        html += "</div>";
+      });
+      html += "</div></div>";
+    });
+    $("quests").innerHTML = html;
+  }
+  $("quests").addEventListener("click", function (e) {
+    var hd = e.target.closest(".qhd");
+    if (hd) {
+      var grp = hd.parentNode, open = !grp.classList.contains("open");
+      grp.classList.toggle("open", open); setOpen(grp.dataset.group, open); return;
+    }
+    var qa = e.target.closest("[data-qact]");
+    if (qa) {
+      var qid = +qa.closest(".q").dataset.qid;
+      if (qa.dataset.qact === "track") trackQuest(qid);
+      else { routeToQuest(qid); showView("map"); }
+      return;
+    }
+    var q = e.target.closest(".q");
+    if (q) {
+      var id = q.dataset.qid, closed = !q.classList.contains("closed");
+      q.classList.toggle("closed", closed);
+      if (closed) closedQuests[id] = true; else delete closedQuests[id];
+      store("edgelink.quests.closed", closedQuests);
+    }
+  });
+  function setAll(open) {
+    openGroups = openGroups || {};
+    document.querySelectorAll(".qgrp").forEach(function (g) { g.classList.toggle("open", open); openGroups[g.dataset.group] = open; });
+    store("edgelink.quests.open", openGroups);
+  }
+  $("qexp").addEventListener("click", function () { setAll(true); });
+  $("qcol").addEventListener("click", function () { setAll(false); });
+
+  /* ---------- Professions ---------- */
+  var MAT = { "7:9": ["Herbs", "Herbalism"], "7:7": ["Ore & Stone", "Mining"], "7:6": ["Leather", "Skinning"], "7:5": ["Cloth", "Tailoring"],
+    "7:8": ["Meat & Fish", "Cooking"], "7:12": ["Enchanting", "Enchanting"], "7:10": ["Elemental", ""], "7:1": ["Parts", "Engineering"],
+    "7:2": ["Explosives", "Engineering"], "7:3": ["Devices", "Engineering"], "7:4": ["Jewelcrafting", "Jewelcrafting"], "7:16": ["Inscription", "Inscription"] };
+  function renderProf() {
+    var skills = state && state.skills || [], mine = {};
+    skills.forEach(function (k) { mine[k.name] = true; });
+    var html = skills.length ? "" : '<div class="sk"><div class="t"><span>No professions yet</span></div></div>';
+    skills.forEach(function (k) {
+      var pct = k.max ? Math.round(100 * k.rank / k.max) : 0;
+      html += '<div class="sk"><div class="t"><span>' + esc(k.name) + "</span><span>" + k.rank + " / " + k.max + '</span></div><div class="bar"><i style="width:' + pct + '%"></i></div></div>';
+    });
+    var z = mapLevels.zone || (state && state.maps && state.maps[0]);
+    html += '<div class="sk nodes"><div class="t"><span>Learned nodes in ' + esc(z ? z.name : "this zone") + '</span></div><div class="row">' +
+      ["H", "M", "F", "T"].map(function (k) { return '<span><span class="pi g' + k + '">' + GATHER[k].glyph + "</span>" + nodeCount(k) + " " + GATHER[k].label.toLowerCase() + (nodeCount(k) === 1 ? "" : "s") + "</span>"; }).join("") +
+      '</div><div class="row" style="font-size:13px">Saved as you gather. Show them on the Map tab.</div></div>';
+    $("skills").innerHTML = html;
+    // Materials in bags, totalled per item and grouped by type
+    var groups = {}, order = [];
+    (state && state.bags || []).forEach(function (b) {
+      b.items.forEach(function (it) {
+        if (it.cls !== 7) return;
+        var key = it.cls + ":" + it.sub, def = MAT[key] || ["Trade goods", ""];
+        var gname = def[0];
+        if (!groups[gname]) { groups[gname] = { name: gname, prof: def[1], items: {}, total: 0 }; order.push(gname); }
+        var g = groups[gname], cur = g.items[it.id];
+        if (!cur) g.items[it.id] = cur = { id: it.id, name: it.name, q: it.q, count: 0 };
+        cur.count += it.count; g.total += it.count;
+      });
+    });
+    order.sort(function (a, b) { return (mine[groups[b].prof] ? 1 : 0) - (mine[groups[a].prof] ? 1 : 0); });
+    var mh = order.map(function (gname) {
+      var g = groups[gname], items = Object.keys(g.items).map(function (k) { return g.items[k]; }).sort(function (a, b) { return b.count - a.count; });
+      return '<div class="mg' + (mine[g.prof] ? " mine" : "") + '"><h3><span>' + esc(g.name) + (g.prof ? ' <span class="pf">' + esc(g.prof) + "</span>" : "") +
+        '</span><span class="ct">' + g.total + ' total</span></h3><div class="grid">' +
+        items.map(function (it) { return tile(it, "", 'data-mat="' + it.id + '" data-name="' + esc(it.name) + '" data-count="' + it.count + '"'); }).join("") + "</div></div>";
+    }).join("");
+    $("mats").innerHTML = mh || '<div class="mg"><h3><span>No gathering materials in your bags</span></h3></div>';
+    renderRecipes();
+  }
+  /* Recipes: what you know (read whenever you open a profession window) and what you can make right now */
+  var recProf = store("edgelink.recProf") || "", recOnly = !!store("edgelink.recOnly");
+  var DIFF = ["#ff8040", "#ffff00", "#40bf40", "#808080"], DIFF_NAME = ["Always skills up", "Often skills up", "Rarely skills up", "No skill up"];
+  function haveCounts() {
+    var bag = {}, bank = {};
+    (state && state.bags || []).forEach(function (b) { b.items.forEach(function (it) { bag[it.id] = (bag[it.id] || 0) + it.count; }); });
+    (state && state.bank || []).forEach(function (it) { bank[it.id] = (bank[it.id] || 0) + it.count; });
+    return { bag: bag, bank: bank };
+  }
+  function renderRecipes() {
+    var all = state && state.recipes || [], profs = [];
+    all.forEach(function (r) { if (profs.indexOf(r.prof) < 0) profs.push(r.prof); });
+    if (!profs.length) {
+      $("rbar").innerHTML = "<b>Recipes</b>";
+      $("rlist").innerHTML = '<div class="rnone">Open a profession window in WoW once (for example Alchemy or Cooking) and its recipes will be listed here, with what you can make from your bags.</div>';
+      return;
+    }
+    if (profs.indexOf(recProf) < 0) recProf = profs[0];
+    var have = haveCounts();
+    var rows = all.filter(function (r) { return r.prof === recProf; }).map(function (r) {
+      var can = Infinity, canBank = Infinity;
+      r.reagents.forEach(function (g) {
+        var b = have.bag[g.id] || 0, k = have.bank[g.id] || 0;
+        can = Math.min(can, Math.floor(b / g.count)); canBank = Math.min(canBank, Math.floor((b + k) / g.count));
+      });
+      if (!r.reagents.length) can = canBank = 0;
+      return { r: r, can: can, canBank: canBank };
+    });
+    var total = rows.length, makeable = rows.filter(function (x) { return x.can > 0; }).length;
+    if (recOnly) rows = rows.filter(function (x) { return x.canBank > 0; });
+    rows.sort(function (a, b) { return (b.can > 0) - (a.can > 0) || (b.canBank > 0) - (a.canBank > 0) || a.r.diff - b.r.diff || (a.r.name < b.r.name ? -1 : 1); });
+    $("rbar").innerHTML = profs.map(function (p) { return '<button data-prof="' + esc(p) + '" class="' + (p === recProf ? "on" : "") + '">' + esc(p) + "</button>"; }).join("") +
+      '<span class="sp"></span><span class="rc">' + makeable + " of " + total + ' can be made now</span><button data-only="1" class="' + (recOnly ? "on" : "") + '">Only what I can make</button>';
+    $("rlist").innerHTML = rows.map(function (x) {
+      var r = x.r;
+      var rg = r.reagents.map(function (g) {
+        var b = have.bag[g.id] || 0, k = have.bank[g.id] || 0, ok = b >= g.count;
+        return '<span class="' + (ok ? "ok" : b + k >= g.count ? "bk" : "no") + '">' + esc(g.name || "Item " + g.id) + " " + b + (k ? "+" + k : "") + "/" + g.count + "</span>";
+      }).join("");
+      var badge = x.can > 0 ? '<span class="mk">Make ' + x.can + "</span>" : x.canBank > 0 ? '<span class="mk bank">' + x.canBank + " with bank</span>" : "";
+      return '<div class="rr' + (x.can > 0 ? " can" : "") + '"><div class="rt"><i style="background:' + DIFF[r.diff] + '" title="' + DIFF_NAME[r.diff] + '"></i><span class="rn">' + esc(r.name) +
+        (r.qty > 1 ? " \u00D7" + r.qty : "") + "</span>" + badge + '</div><div class="rg">' + rg + "</div></div>";
+    }).join("") || '<div class="rnone">Nothing you can make right now.</div>';
+  }
+  $("rbar").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.prof) { recProf = b.dataset.prof; store("edgelink.recProf", recProf); }
+    else { recOnly = !recOnly; store("edgelink.recOnly", recOnly); }
+    renderRecipes(); $("rlist").scrollTop = 0;
+  });
+
+  /* ---------- Session: XP, gold, gathering, performance, reputations ---------- */
+  var REACTION = ["", "Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted"];
+  var REACT_COL = ["", "#cc2222", "#ff4a2a", "#ee6622", "#ffd24a", "#40bf40", "#33c9a0", "#4fb3ff", "#b55cf5"];
+  function dur(sec) { if (!isFinite(sec) || sec <= 0) return "--"; var h = Math.floor(sec / 3600), m = Math.round(sec % 3600 / 60); return h ? h + " h " + m + " min" : m + " min"; }
+  function renderSession() {
+    var se = state && state.session, p = state && state.player;
+    if (!se || !p) { $("scards").innerHTML = '<div class="empty">No session data yet.</div>'; $("reps").innerHTML = ""; return; }
+    var hrs = se.start ? Math.max(1 / 60, (Date.now() / 1000 - se.start) / 3600) : 0;
+    var per = function (n) { return hrs ? Math.round(n / hrs) : 0; };
+    var xpHr = per(se.xpGained || 0), left = (se.xpMax || 0) - (se.xp || 0);
+    var gold = se.moneyStart != null ? p.money - se.moneyStart : 0, goldHr = hrs ? gold / hrs : 0;
+    var pct = se.xpMax ? 100 * se.xp / se.xpMax : 0, rpct = se.xpMax ? Math.min(100 - pct, 100 * (se.rested || 0) / se.xpMax) : 0;
+    var sign = function (c) { return (c < 0 ? "-" : "+") + money(Math.abs(Math.round(c))); };
+    var card = function (title, big, lines, extra) { return '<div class="scd"><h3>' + title + '</h3><div class="big">' + big + "</div>" + (extra || "") + lines.map(function (l) { return '<div class="ln"><span>' + l[0] + "</span><b>" + l[1] + "</b></div>"; }).join("") + "</div>"; };
+    var gathered = (se.herbs || 0) + (se.ore || 0) + (se.fish || 0) + (se.chests || 0);
+    $("scards").innerHTML =
+      card("Experience", se.xpMax ? Math.round(pct) + "%" : "Max level", [["This session", (se.xpGained || 0).toLocaleString() + " XP"], ["Per hour", xpHr.toLocaleString() + " XP"],
+        ["Next level in", xpHr > 0 && se.xpMax ? dur(left / xpHr * 3600) : "--"], ["Rested", se.rested ? se.rested.toLocaleString() + " XP" : "None"]],
+        '<div class="xb"><i style="width:' + pct + '%"></i><u style="left:' + pct + "%;width:" + rpct + '%"></u></div>') +
+      card("Gold", money(p.money), [["This session", sign(gold)], ["Per hour", sign(goldHr)]]) +
+      card("Gathering", gathered + (gathered === 1 ? " node" : " nodes"), [["Herbs", (se.herbs || 0) + "  (" + per(se.herbs || 0) + "/h)"], ["Ore", (se.ore || 0) + "  (" + per(se.ore || 0) + "/h)"],
+        ["Fishing", se.fish || 0], ["Chests", se.chests || 0]]) +
+      card("Game", (se.fps || "--") + " FPS", [["Latency", se.ms ? se.ms + " ms" : "--"], ["Lowest durability", se.durLow != null ? '<span style="color:' + durColor(se.durLow) + '">' + se.durLow + "%</span>" : "--"],
+        ["Session length", dur(hrs * 3600)]]);
+    var reps = (state.reps || []).slice().sort(function (a, b) { return (b.reaction - a.reaction) || ((b.value - b.min) / Math.max(1, b.max - b.min) - (a.value - a.min) / Math.max(1, a.max - a.min)); });
+    $("reps").innerHTML = '<h3>Reputation</h3>' + (reps.length ? reps.map(function (r) {
+      var span = Math.max(1, r.max - r.min), v = Math.max(0, r.value - r.min), w = r.max > r.min ? Math.min(100, 100 * v / span) : 100;
+      return '<div class="rp"><div class="t"><span>' + esc(r.name) + '</span><span style="color:' + (REACT_COL[r.reaction] || "#aaa") + '">' + (REACTION[r.reaction] || "") + (r.max > r.min ? "  " + v.toLocaleString() + " / " + span.toLocaleString() : "") +
+        '</span></div><div class="bar"><i style="width:' + w + "%;background:" + (REACT_COL[r.reaction] || "#888") + '"></i></div></div>';
+    }).join("") : '<div class="rnone">No reputations yet.</div>');
+  }
+  setInterval(function () { if ($("v-sess").classList.contains("active")) renderSession(); }, 15000);
+
+  /* ---------- Coordinates keypad ---------- */
+  var kp = { x: "", y: "", f: "x" };
+  function kpShow() {
+    var k = $("keypad");
+    k.querySelector(".kx").textContent = kp.x || "--.-"; k.querySelector(".ky").textContent = kp.y || "--.-";
+    k.querySelector(".kx").classList.toggle("on", kp.f === "x"); k.querySelector(".ky").classList.toggle("on", kp.f === "y");
+    k.querySelector('[data-k="next"]').textContent = kp.f === "x" ? "Next" : "Back";
+  }
+  $("coordbtn").addEventListener("click", function (e) {
+    e.stopPropagation(); if (!mapLevels.zone) return;
+    kp = { x: "", y: "", f: "x" }; $("keypad").querySelector(".kz").textContent = mapLevels.zone.name; $("keypad").style.display = "block"; hideTip(); kpShow();
+  });
+  $("keypad").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    var k = b.dataset.k || b.textContent;
+    if (k === "cancel") { $("keypad").style.display = "none"; return; }
+    if (k === "next") kp.f = kp.f === "x" ? "y" : "x";
+    else if (k === "del") kp[kp.f] = kp[kp.f].slice(0, -1);
+    else if (k === "go") {
+      var x = parseFloat(kp.x), y = parseFloat(kp.y), z = mapLevels.zone;
+      if (!(x >= 0 && x <= 100 && y >= 0 && y <= 100) || !z) { toast("Enter X and Y between 0 and 100", true); return; }
+      setRoute({ map: z.id, x: x / 100, y: y / 100, label: z.name + " " + x.toFixed(1) + ", " + y.toFixed(1) });
+      $("keypad").style.display = "none"; return;
+    } else if (kp[kp.f].length < 5 && !(k === "." && kp[kp.f].indexOf(".") >= 0)) {
+      kp[kp.f] += k;
+      if (kp.f === "x" && (kp.x.replace(".", "").length >= 3 && kp.x.indexOf(".") > 0)) kp.f = "y";
+    }
+    kpShow();
+  });
+  $("mats").addEventListener("click", function (e) {
+    var el = e.target.closest(".tile[data-mat]");
+    if (!el) return hideTip();
+    tipAt(el, esc(el.dataset.name), "You have " + el.dataset.count);
+  });
+
+  /* ---------- Map ---------- */
+  // Map levels from the snapshot: current map first, then parents (type 2 = continent, 1 = world).
+  var pos = null, mapLevels = { zone: null, cont: null };
+  var ARROW = '<svg viewBox="-10 -10 20 20"><path d="M0,-9 L6.5,7 L0,3.5 L-6.5,7 Z" fill="#ffd76a" stroke="#000" stroke-width="1.2"/></svg>';
+  var DOT = '<svg viewBox="-10 -10 20 20"><circle r="6" fill="#ffd76a" stroke="#000" stroke-width="1.5"/></svg>';
+
+  function setFrame(id, m, label) {
+    var f = $(id);
+    f.dataset.mapId = m ? m.id : "";
+    f.querySelector(".ml").textContent = label || (m ? m.name : "");
+    var img = f.querySelector("img");
+    if (!m) { if (img) img.remove(); return; }
+    var src = BRIDGE + "/mapimg/" + m.id;
+    if (!img || img.dataset.src !== src) {
+      if (img) img.remove();
+      img = document.createElement("img");
+      img.dataset.src = src; img.alt = "";
+      img.onerror = function () { img.remove(); };  // grid background stays as the fallback
+      img.src = src;
+      f.insertBefore(img, f.firstChild);
+    }
+  }
+
+  function renderMap() {
+    var maps = state && state.maps || [];
+    mapLevels.zone = maps[0] || null;
+    mapLevels.cont = maps.filter(function (m, i) { return i > 0 && m.type === 2; })[0] || null;
+    setFrame("mf-zone", mapLevels.zone);
+    setFrame("mf-cont", mapLevels.cont);
+    // Highlight where the current map sits on the continent
+    [["mf-cont", mapLevels.cont]].forEach(function (pair) {
+      var hl = $(pair[0]).querySelector(".hl"), r = pair[1] && pair[1].rect;
+      if (!r || r[1] - r[0] >= 0.95) { hl.style.display = "none"; return; }
+      hl.style.display = "block";
+      hl.style.left = (r[0] * 100) + "%"; hl.style.width = ((r[1] - r[0]) * 100) + "%";
+      hl.style.top = (r[2] * 100) + "%"; hl.style.height = ((r[3] - r[2]) * 100) + "%";
+    });
+    renderPinBar(); renderPins(); renderZoneQuests(); drawArea();
+    updatePos();
+  }
+
+  /* Map pins: flight points, dungeons, points of interest, quest objectives */
+  var PIN_GLYPH = { F: "\u2708", D: "\u2691", A: "\u2605", Q: "!", W: "\u2316", V: "\u2620" };
+  // Pins from the game plus the things the minimap is pointing out (kind V)
+  function allPins() {
+    var base = state && state.pins || [];
+    var near = (state && state.nearby || []).filter(function (v) { return v.x != null; }).map(function (v) {
+      return { kind: "V", map: v.map, x: v.x, y: v.y, name: v.name, state: 0, faction: 0, label: nearbyKind(v) };
+    });
+    return base.concat(near);
+  }
+  var PIN_LABEL = { F: "Flight point", D: "Dungeon entrance", A: "Point of interest", Q: "Quest objective", W: "Waypoint", V: "Nearby" };
+  var pinOn = store("edgelink.pins") || { F: true, D: true, A: false, Q: true };
+  ["gH", "gM", "gT"].forEach(function (k) { if (pinOn[k] === undefined) pinOn[k] = true; });
+  if (pinOn.gF === undefined) pinOn.gF = false;
+  // Where each layer shows: "zone" = local map only, "both" = local + continent map.
+  var pinScope = store("edgelink.pinScope") || {};
+  ["F", "D", "A", "Q"].forEach(function (k) { if (!pinScope[k]) pinScope[k] = "both"; });
+  ["gH", "gM", "gF", "gT"].forEach(function (k) { if (!pinScope[k]) pinScope[k] = "zone"; });
+  function shownOn(k, frame) { if (k === "W" || k === "V") return true; return !!pinOn[k] && (frame === "mf-zone" || pinScope[k] === "both"); }
+  var GATHER = { H: { label: "Herb", glyph: "\u273F" }, M: { label: "Ore", glyph: "\u25C6" }, F: { label: "Fishing spot", glyph: "\u2248" }, T: { label: "Treasure", glyph: "\u25A3" } };
+  function zoneNodes() { return state && state.nodes || []; }
+  function nodeCount(kind) { return zoneNodes().filter(function (n) { return n.kind === kind; }).reduce(function (a, n) { return a + n.pts.length; }, 0); }
+  function caps() { return (state && state.pinCaps) || []; }
+  function renderPinBar() {
+    document.querySelectorAll("#pinbar button").forEach(function (b) {
+      var k = b.dataset.kind, ok = k.charAt(0) === "g" || caps().indexOf(k) >= 0;
+      if (k.charAt(0) === "g") b.querySelector(".lb").textContent = { gH: "Herbs", gM: "Ore", gF: "Fishing", gT: "Treasure" }[k] + " (" + nodeCount(k.charAt(1)) + ")";
+      b.disabled = !ok;
+      b.title = ok ? "" : "Not available in this game client";
+      b.classList.toggle("on", ok && !!pinOn[k]);
+      var sc = b.querySelector(".sc");
+      if (!sc) { sc = document.createElement("span"); sc.className = "sc"; b.appendChild(sc); }
+      sc.textContent = pinScope[k] === "both" ? "Both" : "Zone";
+      sc.classList.toggle("both", pinScope[k] === "both");
+    });
+  }
+  $("pinbar").addEventListener("click", function (e) {
+    var b = e.target.closest("button");
+    if (!b || b.disabled) return;
+    var k = b.dataset.kind;
+    if (e.target.closest(".sc")) {
+      pinScope[k] = pinScope[k] === "both" ? "zone" : "both";
+      if (!pinOn[k]) pinOn[k] = true;           // changing where it shows implies you want to see it
+      store("edgelink.pinScope", pinScope);
+    } else pinOn[k] = !pinOn[k];
+    store("edgelink.pins", pinOn);
+    renderPinBar(); renderPins();
+  });
+  function questById(id) { return (state && state.quests || []).filter(function (q) { return q.id === id; })[0]; }
+  function enemyFaction() {
+    var f = state && state.player && state.player.faction;
+    return f === "Alliance" ? 1 : f === "Horde" ? 2 : -1;   // FlightPathFaction: 0 neutral, 1 Horde, 2 Alliance
+  }
+  function renderPins() {
+    var pins = allPins(), enemy = enemyFaction();
+    [["mf-zone", mapLevels.zone], ["mf-cont", mapLevels.cont]].forEach(function (pair) {
+      var layer = $(pair[0]).querySelector(".pins"), m = pair[1], html = "";
+      if (m) pins.forEach(function (p, i) {
+        if (p.map !== m.id || !shownOn(p.kind, pair[0])) return;
+        if (p.kind === "F" && p.faction === enemy) return;
+        var cls = p.kind;
+        if (p.kind === "F" && p.state === 2) cls += " unk";
+        if (p.kind === "Q") { var q = questById(p.state); if (q && q.complete === 1) cls += " done"; if (p.state === selQuest) cls += " sel"; }
+        var glyph = (p.kind === "Q" && cls.indexOf("done") > 0) ? "?" : PIN_GLYPH[p.kind];
+        html += '<span class="pi ' + cls + '" data-i="' + i + '" style="left:' + (p.x * 100) + "%;top:" + (p.y * 100) + '%">' + glyph + "</span>";
+      });
+      // Learned nodes are in zone coordinates; on the continent map, place them inside the zone's rectangle.
+      var r = pair[0] === "mf-cont" && m ? m.rect : null;
+      if (m && (pair[0] === "mf-zone" || (r && r[1] - r[0] < 0.95))) zoneNodes().forEach(function (n, gi) {
+        if (!shownOn("g" + n.kind, pair[0])) return;
+        n.pts.forEach(function (pt, pi) {
+          var x = r ? r[0] + pt[0] * (r[1] - r[0]) : pt[0], y = r ? r[2] + pt[1] * (r[3] - r[2]) : pt[1];
+          html += '<span class="pi g g' + n.kind + '" data-node="' + gi + "," + pi + '" style="left:' + (x * 100) + "%;top:" + (y * 100) + '%">' + GATHER[n.kind].glyph + "</span>";
+        });
+      });
+      layer.innerHTML = html;
+    });
+  }
+  function pinText(p) {
+    if (p.kind === "g") return { title: p.name, meta: GATHER[p.gk].label + " \u2022 gathered here " + p.count + (p.count === 1 ? " time" : " times") };
+    var title = p.name, meta = p.kind === "V" ? p.label : p.kind === "W" ? (p.state === 1 ? "Your map pin" : "TomTom waypoint") : PIN_LABEL[p.kind];
+    if (p.kind === "Q") { var q = questById(p.state); title = q ? q.title : "Quest " + p.state; meta = q && q.complete === 1 ? "Ready to turn in" : "Quest objective"; }
+    if (p.kind === "F") meta = p.state === 0 ? "Flight point (you are here)" : p.state === 2 ? "Flight point (not discovered)" : "Flight point";
+    return { title: title || PIN_LABEL[p.kind], meta: meta };
+  }
+  // Touch-friendly: list every pin within reach of the tap, since town pins often overlap.
+  function pinTipAt(frame, cx, cy) {
+    var hits = [];
+    frame.querySelectorAll(".pins .pi").forEach(function (el) {
+      var r = el.getBoundingClientRect(), dx = r.left + r.width / 2 - cx, dy = r.top + r.height / 2 - cy;
+      if (dx * dx + dy * dy > 30 * 30) return;
+      var pdata;
+      if (el.dataset.node) {
+        var ix = el.dataset.node.split(",").map(Number), n = zoneNodes()[ix[0]];
+        pdata = n && { kind: "g", gk: n.kind, name: n.name, count: n.pts[ix[1]][2] };
+      } else pdata = allPins()[+el.dataset.i];
+      if (pdata) hits.push({ d: dx * dx + dy * dy, p: pdata, el: el });
+    });
+    var fr = frame.getBoundingClientRect(), fm = frame.id === "mf-zone" ? mapLevels.zone : mapLevels.cont;
+    if (!hits.length) {
+      // Empty spot: offer a route to this exact place
+      if (!fm || $("tip").style.display === "block") return hideTip();
+      var px = (cx - fr.left) / fr.width, py = (cy - fr.top) / fr.height;
+      return showMapTip(cx, cy, "Map location", fm.name + "  " + (px * 100).toFixed(1) + ", " + (py * 100).toFixed(1),
+        { map: fm.id, x: px, y: py, label: fm.name + " " + (px * 100).toFixed(1) + ", " + (py * 100).toFixed(1) });
+    }
+    hits.sort(function (a, b) { return a.d - b.d; });
+    var tip = $("tip"), main = $("main").getBoundingClientRect(), r = hits[0].el.getBoundingClientRect();
+    var t0 = pinText(hits[0].p);
+    tipTarget = targetForHit(hits[0], frame);
+    tip.querySelector(".nm").textContent = t0.title;
+    tip.querySelector(".meta").innerHTML = esc(t0.meta) + hits.slice(1, 6).map(function (h) {
+      var t = pinText(h.p); return '<div style="margin-top:6px;color:var(--text)">' + esc(t.title) + ' <span style="color:var(--dim)">\u2022 ' + esc(t.meta) + "</span></div>";
+    }).join("");
+    setTipActions();
+    tip.style.display = "block";
+    var tw = tip.offsetWidth, th = tip.offsetHeight;
+    tip.style.left = Math.min(Math.max(8, r.left - main.left + r.width / 2 - tw / 2), main.width - tw - 8) + "px";
+    var y = r.top - main.top - th - 8; if (y < 8) y = r.bottom - main.top + 8;
+    tip.style.top = y + "px";
+    clearTimeout(tipTimer); tipTimer = setTimeout(hideTip, 8000);
+  }
+  var tipTarget = null;
+  // Where a tapped pin is, as a route target (map id + coordinates on that map)
+  function targetForHit(h, frame) {
+    var p = h.p, m = frame.id === "mf-zone" ? mapLevels.zone : mapLevels.cont;
+    if (p.kind === "g") {
+      var ix = h.el.dataset.node.split(",").map(Number), n = zoneNodes()[ix[0]], pt = n.pts[ix[1]];
+      return { map: mapLevels.zone.id, x: pt[0], y: pt[1], label: n.name };
+    }
+    if (p.kind === "Q") { var q = questById(p.state); return { qid: p.state, label: q ? q.title : "Quest" }; }
+    return { map: p.map, x: p.x, y: p.y, label: p.name || PIN_LABEL[p.kind] };
+  }
+  function setTipActions() {
+    var tip = $("tip");
+    tip.classList.add("act");
+    tip.querySelector(".acts").innerHTML = tipTarget ? '<button data-tact="route">Route here &#10148;</button>' +
+      (tipTarget.qid ? '<button data-tact="track">Track in WoW</button>' : "") : "";
+  }
+  function showMapTip(cx, cy, title, meta, target) {
+    var tip = $("tip"), main = $("main").getBoundingClientRect();
+    tip.querySelector(".nm").textContent = title;
+    tip.querySelector(".meta").textContent = meta;
+    tipTarget = target; setTipActions();
+    tip.style.display = "block";
+    var tw = tip.offsetWidth, th = tip.offsetHeight;
+    tip.style.left = Math.min(Math.max(8, cx - main.left - tw / 2), main.width - tw - 8) + "px";
+    var y = cy - main.top - th - 14; if (y < 8) y = cy - main.top + 14;
+    tip.style.top = y + "px";
+    clearTimeout(tipTimer); tipTimer = setTimeout(hideTip, 8000);
+  }
+  $("tip").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-tact]");
+    if (!b || !tipTarget) return;
+    if (b.dataset.tact === "track") trackQuest(tipTarget.qid);
+    else if (tipTarget.qid) routeToQuest(tipTarget.qid);
+    else setRoute({ map: tipTarget.map, x: tipTarget.x, y: tipTarget.y, label: tipTarget.label });
+    hideTip();
+  });
+  $("maps").addEventListener("click", function (e) {
+    var frame = e.target.closest(".mapframe");
+    if (frame && (frame.id === "mf-zone" || frame.id === "mf-cont")) pinTipAt(frame, e.clientX, e.clientY); else hideTip();
+  });
+
+  /* Active quests for the zone you're in (replaces the world map) */
+  function renderZoneQuests() {
+    var p = state && state.player, z = mapLevels.zone;
+    var names = [z && z.name, p && p.zone].filter(Boolean);
+    var qs = (state && state.quests || []).filter(function (q) { return names.indexOf(q.group) >= 0; });
+    // Quests with a pin on this zone's map count too (when the client provides quest pins)
+    (state && state.pins || []).forEach(function (pn) {
+      if (pn.kind === "Q" && z && pn.map === z.id && !qs.some(function (q) { return q.id === pn.state; })) {
+        var q = questById(pn.state); if (q) qs.push(q);
+      }
+    });
+    var ready = qs.filter(function (q) { return q.complete === 1; }).length;
+    document.querySelector("#zq .zqh").textContent = "Quests in " + (names[0] || "this zone") + "  (" + qs.length + (ready ? ", " + ready + " ready" : "") + ")";
+    if (!qs.length) { document.querySelector("#zq .zql").innerHTML = '<div class="zqi"><div class="o">No active quests here.</div></div>'; return; }
+    var zid = z && z.id, hasR = caps().indexOf("R") >= 0;
+    document.querySelector("#zq .zql").innerHTML = qs.map(function (q) {
+      var area = areaFor(q.id, zid);
+      var na = selQuest === q.id && !area ? '<div class="na">' + (hasR ? "No objective area on this map" : "Quest areas aren't available from this game client") + "</div>" : "";
+      return '<div class="zqi' + (selQuest === q.id ? " sel" : "") + '" data-qid="' + q.id + '"><div class="t"><span class="lv">[' + esc(q.level) + "]</span><span>" + esc(q.title) + "</span>" +
+        (q.complete === 1 ? '<span class="rd">Ready to turn in</span>' : q.complete === -1 ? '<span class="rd" style="color:var(--bad)">Failed</span>' : "") + "</div>" +
+        q.objectives.map(function (o) { return '<div class="o' + (o.done ? " done" : "") + '">' + esc(o.text) + "</div>"; }).join("") + na +
+        (selQuest === q.id ? '<div class="za"><button data-zact="track">Track in WoW</button></div>' : "") + "</div>";
+    }).join("");
+  }
+
+  /* Quest objective areas: tap a quest in the list to shade its areas on the zone map */
+  var selQuest = null;
+  function areaFor(qid, mapId) {
+    return (state && state.areas || []).filter(function (a) { return a.quest === qid && a.map === mapId; })[0] || null;
+  }
+  document.querySelector("#zq .zql").addEventListener("click", function (e) {
+    var el = e.target.closest(".zqi[data-qid]");
+    if (!el) return;
+    var id = +el.dataset.qid;
+    if (e.target.closest("[data-zact]")) { trackQuest(id); return; }
+    if (selQuest === id) { selQuest = null; if (route && route.qid === id) setRoute(null); }
+    else routeToQuest(id);
+    renderZoneQuests(); renderPins(); drawArea();
+  });
+  function maskCanvas(a, rgb) {
+    var c = document.createElement("canvas"); c.width = a.w; c.height = a.h;
+    var ctx = c.getContext("2d"), img = ctx.createImageData(a.w, a.h), runs = String(a.runs).split(".").map(Number);
+    var i = 0, v = 0;
+    runs.forEach(function (n) {
+      for (var k = 0; k < n && i < a.w * a.h; k++, i++) {
+        if (v) { img.data[i * 4] = rgb[0]; img.data[i * 4 + 1] = rgb[1]; img.data[i * 4 + 2] = rgb[2]; img.data[i * 4 + 3] = 255; }
+      }
+      v ^= 1;
+    });
+    ctx.putImageData(img, 0, 0);
+    return c;
+  }
+  function drawArea() {
+    var frame = $("mf-zone"), cv = frame.querySelector("canvas.areas");
+    var w = frame.clientWidth, h = frame.clientHeight, dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    var ctx = cv.getContext("2d");
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    var z = mapLevels.zone, a = selQuest && z ? areaFor(selQuest, z.id) : null;
+    if (!a) return;
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+    var blur = Math.max(4, cv.width / a.w * 0.9);
+    // soft outer glow, then the blue fill (looks like the in-game objective areas)
+    ctx.filter = "blur(" + blur * 0.9 + "px)"; ctx.globalAlpha = 0.9;
+    ctx.drawImage(maskCanvas(a, [110, 180, 255]), 0, 0, cv.width, cv.height);
+    ctx.filter = "blur(" + blur * 0.3 + "px)"; ctx.globalAlpha = 0.7;
+    ctx.drawImage(maskCanvas(a, [70, 60, 210]), 0, 0, cv.width, cv.height);
+    ctx.filter = "none"; ctx.globalAlpha = 1;
+  }
+
+  function placeMarker(frameId, m, x, y, facing) {
+    var mk = $(frameId).querySelector(".marker");
+    if (!m || x == null) { mk.style.display = "none"; return; }
+    var r = m.rect || [0, 1, 0, 1];
+    var mx = r[0] + x * (r[1] - r[0]), my = r[2] + y * (r[3] - r[2]);
+    if (mx < 0 || mx > 1 || my < 0 || my > 1) { mk.style.display = "none"; return; }
+    var hasArrow = facing != null;
+    if (mk.dataset.kind !== (hasArrow ? "a" : "d")) {
+      mk.innerHTML = '<div class="ring"></div>' + (hasArrow ? ARROW : DOT);
+      mk.dataset.kind = hasArrow ? "a" : "d";
+    }
+    if (hasArrow) mk.querySelector("svg").style.transform = "rotate(" + (-facing) + "rad)";  // WoW facing: radians counter-clockwise from north
+    mk.style.left = (mx * 100) + "%"; mk.style.top = (my * 100) + "%";
+    mk.style.display = "block";
+  }
+
+  function updatePos() {
+    var p = state && state.player, z = mapLevels.zone;
+    var live = pos && pos.valid && z && pos.mapId === z.id;
+    var x = live ? pos.x : null, y = live ? pos.y : null, f = live ? pos.facing : null;
+    placeMarker("mf-zone", z, x, y, f);
+    placeMarker("mf-cont", mapLevels.cont, x, y, f);
+    drawRoute();
+    var note = "";
+    if (pos && pos.combat) note = '<div class="n warn">In combat: position paused</div>';
+    else if (!live) note = '<div class="n">' + (pos && !pos.valid ? "No coordinates here (instances hide your position)" : "Waiting for position...") + "</div>";
+    $("mapinfo").innerHTML = '<div class="z">' + esc(z && z.name || (p && p.zone) || "Unknown") + "</div>" +
+      '<div class="s">' + esc(p && p.subzone || "") + "</div>" +
+      '<div class="c">' + (live ? (x * 100).toFixed(1) + ", " + (y * 100).toFixed(1) : "--, --") + "</div>" + note;
+  }
+
+  /* ---------- Routes ("GPS"): a line from you to whatever you picked, with distance and direction ---------- */
+  var route = null;   // { qid, label } for a quest, or { map, x, y, label } for a fixed spot
+  function caps2(k) { return caps().indexOf(k) >= 0; }
+  function setRoute(r) {
+    route = r;
+    if (!r || !r.qid) { if (selQuest && (!r || r.qid !== selQuest)) { selQuest = null; renderZoneQuests(); renderPins(); drawArea(); } }
+    renderQuests(); drawRoute();
+  }
+  function routeToQuest(qid) {
+    var q = questById(qid);
+    selQuest = qid;
+    setRoute({ qid: qid, label: q ? q.title : "Quest " + qid });
+    renderZoneQuests(); renderPins(); drawArea();
+  }
+  // Convert between the zone map and the continent map using where the zone sits on the continent.
+  function toZone(map, x, y) {
+    var z = mapLevels.zone, c = mapLevels.cont;
+    if (z && map === z.id) return [x, y];
+    if (c && map === c.id && c.rect && c.rect[1] > c.rect[0]) { var r = c.rect; return [(x - r[0]) / (r[1] - r[0]), (y - r[2]) / (r[3] - r[2])]; }
+    return null;
+  }
+  function toCont(map, x, y) {
+    var z = mapLevels.zone, c = mapLevels.cont;
+    if (c && map === c.id) return [x, y];
+    if (c && z && map === z.id && c.rect) { var r = c.rect; return [r[0] + x * (r[1] - r[0]), r[2] + y * (r[3] - r[2])]; }
+    return null;
+  }
+  function playerZone() { var z = mapLevels.zone; return pos && pos.valid && z && pos.mapId === z.id ? [pos.x, pos.y] : null; }
+  // Squared distance in yards when the map size is known (else in map units), in zone coordinates
+  function zDist2(a, b) {
+    var z = mapLevels.zone, w = z && z.yw || 1, h = z && z.yh || 1;
+    var dx = (a[0] - b[0]) * w, dy = (a[1] - b[1]) * h; return dx * dx + dy * dy;
+  }
+  // Nearest filled cell of a quest's objective area
+  function nearestAreaPoint(a, from) {
+    var runs = String(a.runs).split(".").map(Number), i = 0, v = 0, best = null, bd = Infinity;
+    runs.forEach(function (n) {
+      if (v) for (var k = 0; k < n; k++) {
+        var cx = ((i + k) % a.w + 0.5) / a.w, cy = (Math.floor((i + k) / a.w) + 0.5) / a.h;
+        var d = from ? zDist2([cx, cy], from) : 0;
+        if (d < bd) { bd = d; best = [cx, cy]; if (!from) break; }
+      }
+      i += n; v ^= 1;
+    });
+    return best;
+  }
+  // Resolve the route to a point in zone coordinates (may lie outside 0..1 when it's in another zone)
+  function routeTarget() {
+    if (!route) return null;
+    if (!route.qid) { var p = toZone(route.map, route.x, route.y); return p ? { z: p, src: route } : null; }
+    var me = playerZone(), z = mapLevels.zone, c = mapLevels.cont, cands = [];
+    var a = z ? areaFor(route.qid, z.id) : null;
+    if (a) { var ap = nearestAreaPoint(a, me); if (ap) cands.push(ap); }
+    (state && state.pins || []).forEach(function (pn) {
+      if (pn.kind !== "Q" || pn.state !== route.qid) return;
+      var zp = toZone(pn.map, pn.x, pn.y); if (zp) cands.push(zp);
+    });
+    if (!cands.length) return null;
+    if (me) cands.sort(function (p, q) { return zDist2(p, me) - zDist2(q, me); });
+    return { z: cands[0], src: route };
+  }
+  function fmtDist(yd) { return String(Math.round(yd)).replace(/\B(?=(\d{3})+(?!\d))/g, ",") + " yd"; }
+  function turnText(dxYd, dyYd, facing) {
+    if (facing == null) return "";
+    var b = Math.atan2(-dxYd, -dyYd), rel = b - facing;   // both counter-clockwise from north
+    while (rel > Math.PI) rel -= 2 * Math.PI; while (rel <= -Math.PI) rel += 2 * Math.PI;
+    var deg = Math.round(Math.abs(rel) * 180 / Math.PI);
+    var clock = ((12 - Math.round(rel / (Math.PI / 6))) % 12) || 12;
+    if (deg <= 15) return "Straight ahead";
+    if (deg >= 165) return "Behind you";
+    return (rel > 0 ? "Turn left " : "Turn right ") + deg + "\u00B0  (" + clock + " o'clock)";
+  }
+  /* ---- Suggested paths: learned trails (where you've walked before) and flight legs ---- */
+  var suggest = store("edgelink.suggest"); if (suggest === null || suggest === undefined) suggest = true;
+  var trail = null, trailAt = 0, trailBusy = false;      // { map, n, bits, count }
+  function loadTrail(force) {
+    var z = mapLevels.zone; if (!z || trailBusy) return;
+    if (!force && trail && trail.map === z.id && Date.now() - trailAt < 20000) return;
+    trailBusy = true;
+    var id = z.id;
+    fetch(BRIDGE + "/trail/" + id, { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (j) {
+      var bin = atob(j.cells || ""), bits = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bits[i] = bin.charCodeAt(i);
+      trail = { map: id, n: j.n || 0, bits: bits, count: j.count || 0 }; trailAt = Date.now(); trailBusy = false; pathKey = "";
+    }).catch(function () { trailBusy = false; trailAt = Date.now(); });
+  }
+  function walked(c) { return (trail.bits[c >> 3] >> (c & 7)) & 1; }
+  // Nearest walked cell to (cx, cy) within maxR cells
+  function nearestWalked(cx, cy, maxR) {
+    var n = trail.n, best = -1, bd = Infinity;
+    for (var r = 0; r <= maxR && best < 0; r++)
+      for (var dy = -r; dy <= r; dy++) for (var dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        var x = cx + dx, y = cy + dy; if (x < 0 || y < 0 || x >= n || y >= n) continue;
+        if (walked(y * n + x)) { var d = dx * dx + dy * dy; if (d < bd) { bd = d; best = y * n + x; } }
+      }
+    return best;
+  }
+  // A* over walked cells. Returns zone-coordinate points from `from` to `to`, or null when trails don't help.
+  function trailPath(from, to) {
+    var z = mapLevels.zone;
+    if (!trail || !z || trail.map !== z.id || !trail.n || trail.count < 8) return null;
+    if (to[0] <= 0 || to[0] >= 1 || to[1] <= 0 || to[1] >= 1) return null;
+    var n = trail.n, cw = (z.yw || 1) / n, ch = (z.yh || 1) / n;
+    var straight = Math.sqrt(zDist2(from, to));
+    var s = nearestWalked(Math.floor(from[0] * n), Math.floor(from[1] * n), 6);
+    var g = nearestWalked(Math.floor(to[0] * n), Math.floor(to[1] * n), 14);
+    if (s < 0 || g < 0 || s === g) return null;
+    var cen = function (c) { return [((c % n) + 0.5) / n, (Math.floor(c / n) + 0.5) / n]; };
+    var exitGap = Math.sqrt(zDist2(cen(g), to));
+    if (z.yw && exitGap > 0.5 * straight) return null;       // the trail ends too far from the target to be useful
+    var gx = g % n, gy = Math.floor(g / n);
+    var hfn = function (c) { var dx = ((c % n) - gx) * cw, dy = (Math.floor(c / n) - gy) * ch; return Math.sqrt(dx * dx + dy * dy); };
+    var cost = {}, prev = {}, open = [[hfn(s), s]], done = {}, guard = 0;
+    cost[s] = 0;
+    var diag = Math.sqrt(cw * cw + ch * ch);
+    while (open.length && guard++ < 60000) {
+      var bi = 0; for (var i = 1; i < open.length; i++) if (open[i][0] < open[bi][0]) bi = i;
+      var cur = open.splice(bi, 1)[0][1];
+      if (cur === g) break;
+      if (done[cur]) continue; done[cur] = 1;
+      var x = cur % n, y = Math.floor(cur / n);
+      for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        var nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= n || ny >= n) continue;
+        var nc = ny * n + nx; if (!walked(nc) || done[nc]) continue;
+        var c2 = cost[cur] + (dx && dy ? diag : dx ? cw : ch);
+        if (cost[nc] === undefined || c2 < cost[nc]) { cost[nc] = c2; prev[nc] = cur; open.push([c2 + hfn(nc), nc]); }
+      }
+    }
+    if (cost[g] === undefined) return null;
+    var cells = [], c = g; while (c !== undefined) { cells.push(c); c = prev[c]; } cells.reverse();
+    var pts = [from].concat(cells.map(cen)); pts.push(to);
+    // light smoothing so the line doesn't look like stairs
+    for (var pass = 0; pass < 2; pass++) for (var k = 1; k < pts.length - 1; k++)
+      pts[k] = [(pts[k - 1][0] + pts[k][0] * 2 + pts[k + 1][0]) / 4, (pts[k - 1][1] + pts[k][1] * 2 + pts[k + 1][1]) / 4];
+    if (z.yw && pathYards(pts) > 3 * straight + 100) return null;   // absurd detour: the straight line is the better hint
+    return pts;
+  }
+  function pathYards(pts) { var d = 0; for (var i = 1; i < pts.length; i++) d += Math.sqrt(zDist2(pts[i - 1], pts[i])); return d; }
+  // Flight suggestion on the continent map: walk to the nearest known flight point, fly, walk the rest.
+  function flightPlan(me, t) {
+    var z = mapLevels.zone, c = mapLevels.cont;
+    if (!z || !c || !c.yw || !z.yw) return null;
+    var mc = toCont(z.id, me[0], me[1]), tc = toCont(z.id, t[0], t[1]); if (!mc || !tc) return null;
+    var yd = function (a, b) { var dx = (a[0] - b[0]) * c.yw, dy = (a[1] - b[1]) * c.yh; return Math.sqrt(dx * dx + dy * dy); };
+    var D = yd(mc, tc); if (D < 700) return null;
+    var enemy = enemyFaction(), A = null, B = null, da = Infinity, db = Infinity;
+    (state && state.pins || []).forEach(function (p) {
+      if (p.kind !== "F" || p.map !== c.id || p.faction === enemy || p.state === 2) return;
+      var q = [p.x, p.y], d1 = yd(mc, q), d2 = yd(tc, q);
+      if (d1 < da) { da = d1; A = p; }
+      if (d2 < db) { db = d2; B = p; }
+    });
+    if (!A || !B || A === B || da + db > 0.6 * D) return null;
+    return { A: A, B: B, mc: mc, tc: tc, walkA: da, walkB: db, az: toZone(c.id, A.x, A.y) };
+  }
+  var dashPhase = 0;
+  // segs: [{ pts: [[x, y], ...], fly: bool }], marks: [[x, y], ...] (the last mark is the destination)
+  function drawPath(frameId, segs, marks, small) {
+    var frame = $(frameId), cv = frame.querySelector("canvas.gps");
+    var w = frame.clientWidth, h = frame.clientHeight, dpr = window.devicePixelRatio || 1;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    var ctx = cv.getContext("2d");
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.scale(dpr, dpr);
+    var lw = small ? 3 : 5;
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    (segs || []).forEach(function (sg) {
+      if (!sg.pts || sg.pts.length < 2) return;
+      var trace = function () { ctx.beginPath(); sg.pts.forEach(function (p, i) { if (i) ctx.lineTo(p[0] * w, p[1] * h); else ctx.moveTo(p[0] * w, p[1] * h); }); ctx.stroke(); };
+      ctx.setLineDash([]); ctx.strokeStyle = "rgba(0,0,0,.65)"; ctx.lineWidth = lw + 4; trace();
+      ctx.strokeStyle = sg.fly ? "#ffd24a" : "#5ff0ff"; ctx.lineWidth = lw;
+      ctx.setLineDash(sg.fly ? [1, lw * 2.4] : [lw * 3, lw * 2.2]); ctx.lineDashOffset = -dashPhase * lw; trace();
+      ctx.setLineDash([]);
+    });
+    (marks || []).forEach(function (m, i) {
+      if (!m) return;
+      var tx = m[0] * w, ty = m[1] * h, last = i === marks.length - 1;
+      if (tx < 0 || tx > w || ty < 0 || ty > h) return;
+      var rr = (small ? 7 : 12) * (last ? 1 : 0.7), col = last ? "#5ff0ff" : "#ffd24a";
+      ctx.lineWidth = small ? 2.5 : 4; ctx.strokeStyle = "#000"; ctx.beginPath(); ctx.arc(tx, ty, rr + 2, 0, 7); ctx.stroke();
+      ctx.strokeStyle = col; ctx.beginPath(); ctx.arc(tx, ty, rr, 0, 7); ctx.stroke();
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(tx, ty, small ? 2.5 : 4, 0, 7); ctx.fill();
+    });
+  }
+  var pathKey = "", pathCache = null;
+  function walkPath(me, to) {
+    var z = mapLevels.zone, n = 256;
+    var key = [z.id, Math.floor(me[0] * n), Math.floor(me[1] * n), Math.round(to[0] * 2000), Math.round(to[1] * 2000), trailAt, suggest].join(",");
+    if (key !== pathKey) { pathKey = key; pathCache = suggest ? trailPath(me, to) : null; }
+    if (pathCache) { var p = pathCache.slice(); p[0] = me; return { pts: p, learned: true }; }
+    return { pts: [me, to], learned: false };
+  }
+  function drawRoute() {
+    var card = $("route");
+    if (route && route.qid && !questById(route.qid) && state) route = null;   // quest finished or abandoned
+    card.style.display = route ? "block" : "none";
+    if (!route) { drawPath("mf-zone"); drawPath("mf-cont", null, null, true); return; }
+    loadTrail();
+    var t = routeTarget(), me = playerZone();
+    card.querySelector(".rl").textContent = route.label;
+    var z = mapLevels.zone, distEl = card.querySelector(".dist"), turnEl = card.querySelector(".turn"), stepsEl = card.querySelector(".steps");
+    var modeBtn = card.querySelector('[data-act="mode"]');
+    modeBtn.textContent = suggest ? "Suggested path" : "Straight line"; modeBtn.classList.toggle("on", !!suggest);
+    var zoneSegs = [], contSegs = [], zoneMarks = [t && t.z], contMarks = [], steps = "";
+    var tc = t && z ? toCont(z.id, t.z[0], t.z[1]) : null;
+    contMarks = [tc];
+    if (!t) {
+      distEl.textContent = "No location for this on the current maps"; turnEl.textContent = "";
+    } else if (!me) {
+      distEl.textContent = pos && pos.combat ? "In combat: position paused" : "Waiting for your position"; turnEl.textContent = "";
+    } else {
+      var fp = suggest ? flightPlan(me, t.z) : null, walkTo = t.z;
+      if (fp && fp.az) {
+        walkTo = fp.az;
+        zoneMarks = [fp.az, t.z];
+        contSegs = [{ pts: [fp.mc, [fp.A.x, fp.A.y]] }, { pts: [[fp.A.x, fp.A.y], [fp.B.x, fp.B.y]], fly: true }, { pts: [[fp.B.x, fp.B.y], fp.tc] }];
+        contMarks = [[fp.A.x, fp.A.y], [fp.B.x, fp.B.y], fp.tc];
+        steps = "<b>1</b> Walk to the " + esc(fp.A.name || "flight master") + " flight point  <b>2</b> Fly to " + esc(fp.B.name || "the next flight point") +
+                (fp.walkB >= 30 ? "  <b>3</b> Walk " + fmtDist(fp.walkB) : "");
+      }
+      var wp = walkPath(me, walkTo);
+      zoneSegs = [{ pts: wp.pts }];
+      if (!fp) { var mc = toCont(z.id, me[0], me[1]); if (mc && tc) contSegs = [{ pts: wp.pts.map(function (p) { return toCont(z.id, p[0], p[1]); }) }]; }
+      var total = pathYards(wp.pts);
+      // steer toward a point a little way along the path
+      var aim = wp.pts[wp.pts.length - 1];
+      for (var i = 1; i < wp.pts.length; i++) if (Math.sqrt(zDist2(me, wp.pts[i])) >= 25) { aim = wp.pts[i]; break; }
+      var dx = (aim[0] - me[0]) * (z.yw || 1), dy = (aim[1] - me[1]) * (z.yh || 1);
+      distEl.textContent = z.yw ? fmtDist(total) : "";
+      turnEl.textContent = pos.taxi ? "In flight" : (z.yw && total < 25) ? (fp ? "Talk to the flight master" : "You're there") : turnText(dx, dy, pos.facing);
+      if (!steps && wp.learned) steps = "Following a trail you've walked before";
+      if (pos.taxi) zoneSegs = [];
+    }
+    stepsEl.innerHTML = steps; stepsEl.style.display = steps ? "" : "none";
+    var inp = state && canControl(), btnWp = card.querySelector('[data-act="wp"]'), btnTr = card.querySelector('[data-act="track"]');
+    btnWp.style.display = inp && caps2("W") && t ? "" : "none";
+    btnTr.style.display = inp && route.qid ? "" : "none";
+    drawPath("mf-zone", zoneSegs, zoneMarks);
+    drawPath("mf-cont", contSegs, contMarks, true);
+  }
+  setInterval(function () { if (route && $("v-map").classList.contains("active")) { dashPhase = (dashPhase + 0.35) % 1000; drawRoute(); } }, 90);
+  $("route").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-act]"); if (!b || !route) return;
+    if (b.dataset.act === "clear") { setRoute(null); return; }
+    if (b.dataset.act === "mode") { suggest = !suggest; store("edgelink.suggest", suggest); pathKey = ""; drawRoute(); return; }
+    if (b.dataset.act === "track") { trackQuest(route.qid); return; }
+    var t = routeTarget(); if (!t) return;
+    // Prefer zone coordinates; fall back to the continent when the spot is outside this zone
+    var m = mapLevels.zone, p = t.z;
+    if (p[0] < 0 || p[0] > 1 || p[1] < 0 || p[1] > 1) { m = mapLevels.cont; p = toCont(mapLevels.zone.id, p[0], p[1]); }
+    if (!m || !p) return;
+    var c = function (v) { return ("00" + Math.max(0, Math.min(999, Math.round(v * 1000)))).slice(-3); };
+    sendGame("3" + ("0000" + m.id).slice(-5) + c(p[0]) + c(p[1]), "Waypoint sent to WoW");
+  });
+
+  /* ---------- Commands to WoW (only when enabled in the companion's tray menu) ---------- */
+  function toast(text, bad) {
+    var t = $("toast"); t.textContent = text; t.className = bad ? "bad show" : "show";
+    clearTimeout(toast.timer); toast.timer = setTimeout(function () { t.className = ""; }, 3500);
+  }
+  function sendGame(digits, okText) {
+    fetch(BRIDGE + "/cmd?d=" + digits, { headers: { "X-EdgeLink-Cmd": "1" }, cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j.ok) toast(okText); else toast(j.error || "WoW did not accept that", true); })
+      .catch(function () { toast("Companion offline", true); });
+  }
+  function trackQuest(qid) {
+    var q = questById(qid);
+    sendGame("1" + qid, "Tracking " + (q ? q.title : "quest") + " in WoW");
+  }
+
+  function layout() { fitBags(); fitGear(); if ($("v-map").classList.contains("active")) { drawArea(); drawRoute(); } }
+  window.addEventListener("resize", layout);
+
+  function setStatus(cls, text) { var s = $("status"); s.className = cls; s.textContent = text; }
+  function poll() {
+    fetch(BRIDGE + "/state", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (j) {
+      if (!j.wowFound) setStatus("warn", "WoW not running");
+      else if (j.snapshotAgeSec < 0) setStatus("warn", "Waiting for addon");
+      else if (j.snapshotAgeSec > 10) setStatus("warn", "Paused " + Math.round(j.snapshotAgeSec) + "s");
+      else setStatus("ok", "Live");
+      if (!!j.inputAllowed !== inputAllowed) { inputAllowed = !!j.inputAllowed; if (state) renderHeader(); }
+      var pk = JSON.stringify(j.pos);
+      if (pk !== lastPosKey) { lastPosKey = pk; pos = j.pos; if (state) updatePos(); }
+      if (j.data) {
+        var key = JSON.stringify(j.data);
+        if (key !== lastKey) {
+          lastKey = key; state = j.data;
+          renderHeader(); renderBags(); renderGear(); renderQuests(); renderMap(); renderProf(); renderSession(); layout();
+          if (selected) { var it = findItem(selected); if (!it) { selected = null; hideTip(); } }
+        }
+      }
+    }).catch(function () {
+      setStatus("bad", "Companion offline");
+    }).then(function () { setTimeout(poll, POLL_MS); });
+  }
+  renderBags(); renderGear(); renderQuests(); renderMap();
+  poll();
+})();
+</script>
+<script>
+  // iCUE lifecycle hooks. The widget polls the companion on its own, so nothing to do here.
+  // Outside iCUE (plain browser) tr() does not exist and the title would show literally.
+  if (typeof tr !== "function") document.title = "EdgeLink WoW";
+  var icueEvents = {
+    onICUEInitialized: function () {},
+    onDataUpdated: function () {}
+  };
+</script>
+</body>
+</html>

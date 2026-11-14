@@ -1,0 +1,17 @@
+# Build output and local data
+dist/
+companion/cache/
+tests/out/
+*.icuewidget
+
+# Secrets and machine-specific files (never commit)
+companion/blizzard.ini
+*.pfx
+*.cer
+
+# OS / editor noise
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+__pycache__/

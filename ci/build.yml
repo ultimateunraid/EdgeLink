@@ -1,0 +1,41 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Addon tests
+        run: |
+          pip install lupa pillow
+          python tests/roundtrip.py
+          python tests/input_test.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build companion and widget package
+        shell: cmd
+        run: companion\build.cmd
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EdgeLink
+          path: dist/EdgeLink/
+          if-no-files-found: error
