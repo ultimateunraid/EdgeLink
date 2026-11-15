@@ -12,8 +12,8 @@ Only `EdgeLink.exe` and the installer `EdgeLink-Setup-<version>.exe`, both built
 
 ## Team roles
 
-- Committers and reviewers: [repository collaborators](https://github.com/ultimateunraid/EdgeLink/graphs/contributors)
-- Approvers: [organization owners](https://github.com/ultimateunraid)
+- Committers and reviewers: [members of the ultimateunraid organization](https://github.com/orgs/ultimateunraid/people)
+- Approvers: [owners of the ultimateunraid organization](https://github.com/orgs/ultimateunraid/people?query=role%3Aowner)
 
 ## Privacy
 
