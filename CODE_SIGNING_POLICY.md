@@ -8,7 +8,7 @@ Once approved, this statement will apply:
 
 ## What is signed
 
-Only `EdgeLink.exe`, built by GitHub Actions from this repository (`.github/workflows/build.yml`). No file built on a personal computer is signed.
+Only `EdgeLink.exe` and the installer `EdgeLink-Setup-<version>.exe`, both built by GitHub Actions from this repository (`.github/workflows/build.yml`). No file built on a personal computer is signed.
 
 ## Team roles
 

@@ -36,7 +36,26 @@ namespace EdgeLink
         }
 
         [STAThread]
-        static void Main()
+        static int Main(string[] args)
+        {
+            // Setup helpers: run by the installer and uninstaller, no tray icon and no single-instance check.
+            if (args.Length > 0)
+            {
+                string a = args[0].ToLowerInvariant();
+                if (a == "--install-addon" || a == "--uninstall-addon")
+                {
+                    StringBuilder report = new StringBuilder();
+                    int done = a == "--install-addon" ? TrayContext.InstallAddonFiles(report) : TrayContext.RemoveAddonFiles(report);
+                    Log(a + ": " + report.ToString().Replace(Environment.NewLine, " | "));
+                    // 0 = at least one game folder handled, 2 = nothing found or copied
+                    return done > 0 ? 0 : 2;
+                }
+            }
+            RunTray();
+            return 0;
+        }
+
+        static void RunTray()
         {
             bool created;
             using (Mutex m = new Mutex(true, "Local\\EdgeLinkCompanion", out created))
@@ -256,26 +275,49 @@ namespace EdgeLink
             foreach (string d in Directory.GetDirectories(src)) CopyDir(d, Path.Combine(dst, Path.GetFileName(d)));
         }
 
-        void InstallAddon()
+        // Copies addon\EdgeLink into every WoW flavor found. Returns how many copies succeeded; -1 = addon files missing.
+        internal static int InstallAddonFiles(StringBuilder report)
         {
             string src = Path.Combine(App.ExeDir, "addon", "EdgeLink");
-            if (!Directory.Exists(src))
+            if (!Directory.Exists(src)) { report.AppendLine("Addon files not found next to EdgeLink.exe"); return -1; }
+            int ok = 0;
+            foreach (string flavor in FindWowFlavors())
+            {
+                string dst = Path.Combine(flavor, "Interface", "AddOns", "EdgeLink");
+                try { CopyDir(src, dst); ok++; report.AppendLine("Installed:  " + dst); }
+                catch (Exception ex) { report.AppendLine("Failed:  " + dst + "\n   " + ex.Message); }
+            }
+            return ok;
+        }
+
+        // Removes Interface\AddOns\EdgeLink from every WoW flavor found (saved variables are left alone).
+        internal static int RemoveAddonFiles(StringBuilder report)
+        {
+            int ok = 0;
+            foreach (string flavor in FindWowFlavors())
+            {
+                string dst = Path.Combine(flavor, "Interface", "AddOns", "EdgeLink");
+                if (!Directory.Exists(dst)) continue;
+                try { Directory.Delete(dst, true); ok++; report.AppendLine("Removed:  " + dst); }
+                catch (Exception ex) { report.AppendLine("Failed:  " + dst + "\n   " + ex.Message); }
+            }
+            return ok;
+        }
+
+        void InstallAddon()
+        {
+            StringBuilder report = new StringBuilder();
+            int n = InstallAddonFiles(report);
+            App.Log("Addon install: " + report.ToString().Replace(Environment.NewLine, " | "));
+            if (n < 0)
             {
                 MessageBox.Show("The addon files were not found next to EdgeLink.exe (expected addon\\EdgeLink).", "EdgeLink", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-            List<string> flavors = FindWowFlavors();
-            if (flavors.Count == 0)
+            if (report.Length == 0)
             {
                 MessageBox.Show("No World of Warcraft installation was found. Copy the addon\\EdgeLink folder into your game's Interface\\AddOns folder by hand.", "EdgeLink", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
-            }
-            StringBuilder report = new StringBuilder();
-            foreach (string flavor in flavors)
-            {
-                string dst = Path.Combine(flavor, "Interface", "AddOns", "EdgeLink");
-                try { CopyDir(src, dst); report.AppendLine("Installed:  " + dst); App.Log("Addon installed to " + dst); }
-                catch (Exception ex) { report.AppendLine("Failed:  " + dst + "\n   " + ex.Message); App.Log("Addon install failed for " + dst + ": " + ex.Message); }
             }
             report.AppendLine();
             report.AppendLine("Type /reload in game (or restart WoW) to load it.");

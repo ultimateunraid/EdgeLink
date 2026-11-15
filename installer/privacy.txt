@@ -1,0 +1,23 @@
+EdgeLink - what it does on your PC, and privacy
+
+EdgeLink is free, open-source software (MIT licence). It is a hobby project and is not affiliated with or endorsed by Blizzard Entertainment, Corsair or Elgato.
+
+HOW IT WORKS
+The WoW addon draws a thin strip of coloured pixels in the top-left corner of the game window. EdgeLink.exe captures only that strip from the screen, decodes it, and serves the data to the iCUE widget on this PC (localhost only). It does not read game memory, inject code or touch network traffic.
+
+Optionally, taps on the Edge can do things in WoW by sending a short burst of key presses. That is OFF by default; you turn it on from the tray menu.
+
+A program that reads the game window and can send keys is a grey area under Blizzard's terms. Use it at your own risk.
+
+PRIVACY
+Everything stays on your PC, with two optional exceptions:
+ - Item icons: item ID numbers are sent to Wowhead to look up icon images.
+ - Map art: zone names are sent to Wowhead to look up map images.
+No account names, character names or other personal data are sent anywhere.
+You can turn both off on the next page ("Download item icons and map art from Wowhead"), or later by setting Icons=false in EdgeLink.ini.
+
+WHAT SETUP CHANGES
+ - Installs EdgeLink for your Windows user only (no administrator rights).
+ - Optionally copies the addon into World of Warcraft\<game version>\Interface\AddOns\EdgeLink.
+ - Optionally starts EdgeLink with Windows.
+To remove everything, use "Installed apps" in Windows Settings and uninstall EdgeLink.

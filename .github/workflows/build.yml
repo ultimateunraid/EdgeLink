@@ -39,3 +39,17 @@ jobs:
           name: EdgeLink
           path: dist/EdgeLink/
           if-no-files-found: error
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc installer\EdgeLink.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EdgeLink-Setup
+          path: dist/release/EdgeLink-Setup-*.exe
+          if-no-files-found: error

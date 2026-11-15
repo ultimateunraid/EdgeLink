@@ -57,14 +57,14 @@ Optional addons: **Auctionator** (auction values for your bags), **TomTom** (its
 
 ## Install
 
-1. Download the [latest release](https://github.com/ultimateunraid/EdgeLink/releases/latest) and unzip it anywhere.
-2. Run `EdgeLink.exe`. It appears in the system tray.
-3. Right-click the tray icon:
-   - **Install / update WoW addon** copies the addon into your WoW folder.
-   - **Install widget in iCUE** opens the widget package; add it to the Edge at full width.
+1. Download `EdgeLink-Setup-<version>.exe` from the [latest release](https://github.com/ultimateunraid/EdgeLink/releases/latest) and run it. It installs for your Windows user only, so there is no administrator prompt.
+2. Setup copies the tray app, installs the WoW addon into your game folder, and can start EdgeLink with Windows.
+3. On the last page, leave **Add the widget to iCUE** ticked. iCUE opens its import prompt: accept it, then add the widget to the Edge at full width. iCUE has no silent install for widgets, so this one step is yours.
 4. Log in to WoW (or type `/reload`).
 
-Releases are not code-signed yet, so Windows SmartScreen or your antivirus may warn about or quarantine `EdgeLink.exe`. See [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md). You can also build it yourself (below).
+Prefer not to run an installer? Each release also has a zip: unzip it anywhere, run `EdgeLink.exe`, and use the tray menu (**Install / update WoW addon**, **Install widget in iCUE**).
+
+Releases are not code-signed yet, so Windows SmartScreen or your antivirus may warn about or quarantine the setup program or `EdgeLink.exe`. See the [Code signing policy](CODE_SIGNING_POLICY.md). You can also build it yourself (below).
 
 ## What you get
 
@@ -100,13 +100,18 @@ Saved data: `%LOCALAPPDATA%\EdgeLink` (log, image cache, learned trails, per-cha
 
 ## Uninstall
 
+**Installed with setup:** open Windows Settings, go to Installed apps, and uninstall **EdgeLink**. That stops the tray app and removes the program, the WoW addon and EdgeLink's registry values, and asks whether to delete saved data too. Then remove the EdgeLink WoW widget in iCUE.
+
+**Zip copy:**
+
 1. Right-click the tray icon and choose **Exit**. If you ticked **Start with Windows**, untick it first.
 2. Delete the EdgeLink folder you unzipped.
 3. Delete the addon folder `World of Warcraft\_forever_\Interface\AddOns\EdgeLink`.
 4. Remove the EdgeLink WoW widget in iCUE.
-5. Optional: delete `%LOCALAPPDATA%\EdgeLink` (log, caches, learned trails, saved inventories) and the addon's saved data file `WTF\Account\<account>\SavedVariables\EdgeLink.lua`.
 
-EdgeLink writes two registry values under your user account only: `HKCU\Software\EdgeLink` (the control setting) and, if you ticked Start with Windows, an entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Delete them if you want no trace left. Nothing is installed system-wide.
+Left behind either way unless you delete them: `%LOCALAPPDATA%\EdgeLink` (log, caches, learned trails, saved inventories; setup offers to delete it) and the addon's saved data file `WTF\Account\<account>\SavedVariables\EdgeLink.lua`.
+
+EdgeLink writes two registry values under your user account only: `HKCU\Software\EdgeLink` (the control setting) and, if you chose Start with Windows, an entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Nothing is installed system-wide.
 
 ## Build from source
 
@@ -117,6 +122,8 @@ companion\build.cmd
 ```
 
 Output goes to `dist\EdgeLink\`. The script uses the C# compiler that ships with Windows; the code is C# 5 for that reason.
+
+To build the setup program as well, install [Inno Setup 6](https://jrsoftware.org/isinfo.php) and run `ISCC installer\EdgeLink.iss`. Output goes to `dist\release\`.
 
 Tests (Python 3 with `lupa` and `pillow`):
 
@@ -132,6 +139,7 @@ python tests/input_test.py
 | `addon/EdgeLink/` | The WoW addon (Lua) |
 | `companion/` | Tray app and bridge (C#), build script, optional PowerShell launcher |
 | `widget/` | The iCUE widget (HTML, CSS, JavaScript) |
+| `installer/` | Inno Setup script for the setup program |
 | `tests/` | Protocol and input-decoder tests |
 | `docs/screenshots/` | Images used in this README |
 
