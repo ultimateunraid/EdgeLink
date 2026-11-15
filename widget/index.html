@@ -13,7 +13,7 @@
 <div id="app">
   <nav id="nav">
     <button data-view="bags" class="active"><span class="ico">&#127890;</span>Bags</button>
-    <button data-view="gear"><span class="ico">&#128737;</span>Gear</button>
+    <button data-view="gear"><span class="ico">&#128737;</span><span class="two">Character<br />Info</span></button>
     <button data-view="quests"><span class="ico">&#10071;</span>Quests</button>
     <button data-view="map"><span class="ico">&#129517;</span>Map</button>
     <button data-view="prof"><span class="ico">&#9874;</span>Professions</button>
@@ -49,13 +49,14 @@
           </div>
         </div>
         <div id="stats"></div>
+        <div id="reps"></div>
       </div>
     </section>
     <section class="view" id="v-quests"><div id="qbar"><div class="sum"></div><button id="qexp">Expand all</button><button id="qcol">Collapse all</button></div><div id="quests"></div></section>
     <section class="view" id="v-map">
       <div id="maps">
         <div class="mapframe" id="mf-zone"><button id="coordbtn">&#8982; Coordinates</button><span class="ml"></span><div class="hl"></div><canvas class="areas"></canvas><canvas class="gps"></canvas><div class="pins"></div><div class="marker"></div></div>
-        <div class="mapframe" id="mf-cont"><span class="ml"></span><div class="hl"></div><canvas class="gps"></canvas><div class="pins small"></div><div class="marker small"></div></div>
+        <div class="mapframe" id="mf-cont"><div id="browse"><span class="bl"></span><div class="bhint"></div></div><div id="bnav"><button data-b="back">&#9664; Back</button><button data-b="world">World</button><button data-b="home">My location</button></div><span class="ml"></span><div class="hl"></div><canvas class="gps"></canvas><div class="pins small"></div><div class="marker small"></div></div>
         <div id="mapside">
           <div id="mapinfo"></div>
           <div id="route">
@@ -81,7 +82,7 @@
     <section class="view" id="v-prof"><div id="prof"><div id="skills"></div>
       <div id="recipes"><div id="rbar"></div><div id="rlist"></div></div>
       <div id="mats"></div></div></section>
-    <section class="view" id="v-sess"><div id="sess"><div id="scards"></div><div id="reps"></div></div></section>
+    <section class="view" id="v-sess"><div id="sess"><div id="scards"></div></div></section>
     <div id="keypad"><div class="kh">Go to coordinates in <span class="kz"></span></div><div class="kd"><span class="kx on">--.-</span><span>,</span><span class="ky">--.-</span></div>
       <div class="kk"><button>1</button><button>2</button><button>3</button><button>4</button><button>5</button><button>6</button><button>7</button><button>8</button><button>9</button><button>.</button><button>0</button><button data-k="del">&#9003;</button></div>
       <div class="ka"><button data-k="cancel">Cancel</button><button data-k="next">Next</button><button data-k="go">Route &#10148;</button></div></div>
@@ -117,7 +118,9 @@
   function money(c) {
     if (c == null) return "";
     var g = Math.floor(c / 10000), s = Math.floor(c / 100) % 100, cu = c % 100;
-    return (g ? g.toLocaleString() + "g " : "") + s + "s " + cu + "c";
+    // Coins instead of letters, like the game: gold, silver, copper
+    var coin = function (n, k) { return '<span class="mny">' + n + '<i class="coin ' + k + '"></i></span>'; };
+    return '<span class="mnys">' + (g ? coin(g.toLocaleString(), "g") : "") + (g || s ? coin(s, "s") : "") + coin(cu, "c") + "</span>";
   }
   function durColor(p) { return p > 50 ? "var(--ok)" : p > 20 ? "var(--warn)" : "var(--bad)"; }
   // Tile with icon (falls back to initials if the companion has no icon for the item)
@@ -149,7 +152,7 @@
   function renderHeader() {
     var p = state && state.player;
     $("who").innerHTML = p ? esc(p.name) + "<small>Lv " + esc(p.level) + " " + esc(p.race) + " " + esc(cap(p.class)) + "</small>" : "EdgeLink";
-    $("money").textContent = p ? money(p.money) : "";
+    $("money").innerHTML = p ? money(p.money) : "";
     var free = 0, total = 0;
     (state && state.bags || []).forEach(function (b) { free += b.free; total += b.slots; });
     $("where").textContent = p ? (p.zone + (p.subzone ? " • " + p.subzone : "") + (total ? "   |   " + free + "/" + total + " free" : "")) : "";
@@ -300,7 +303,7 @@
     if (!it || !el) return hideTip();
     var tip = $("tip"), main = $("main").getBoundingClientRect(), r = el.getBoundingClientRect();
     tip.querySelector(".nm").innerHTML = '<span style="color:' + qcol(it.q) + '">' + esc(it.name) + "</span>";
-    tip.querySelector(".meta").textContent = (it.count > 1 ? "Stack of " + it.count + "   \u2022   " : "") +
+    tip.querySelector(".meta").innerHTML = (it.count > 1 ? "Stack of " + it.count + "   \u2022   " : "") +
       (it.sell ? "Vendor " + money(it.sell * it.count) : "No vendor value") + (it.ah ? "   \u2022   Auction " + money(it.ah * it.count) : "");
     tipTarget = null; tip.classList.remove("act"); tip.querySelector(".acts").innerHTML = "";
     tip.style.display = "block";
@@ -399,6 +402,16 @@
     return !!(p && (group === p.zone || group === p.subzone));  // default: only the current zone is open
   }
   function setOpen(group, open) { openGroups = openGroups || {}; openGroups[group] = open; store("edgelink.quests.open", openGroups); }
+  // Quest difficulty colours, as in the game's quest log (based on quest level vs your level)
+  function questColor(q) {
+    var pl = state && state.player && +state.player.level || 0, ql = +q.level || 0;
+    if (!pl || !ql) return "#ffd100";
+    var grey = pl <= 5 ? 0 : pl <= 39 ? pl - Math.floor(pl / 10) - 5 : pl <= 59 ? pl - Math.floor(pl / 5) - 1 : pl - 9;
+    var d = ql - pl;
+    return d >= 5 ? "#ff2020" : d >= 3 ? "#ff8040" : d >= -2 ? "#ffff00" : ql > grey ? "#40bf40" : "#808080";
+  }
+  function questLevel(q) { return esc(q.level) + (q.tag ? "+" : ""); }
+  function questTag(q) { return q.tag ? '<span class="qtag" style="color:' + questColor(q) + '">(' + esc(q.tag) + ")</span>" : ""; }
   function renderQuests() {
     var qs = state && state.quests || [];
     var ready = qs.filter(function (q) { return q.complete === 1; }).length;
@@ -421,7 +434,7 @@
         var doneN = q.objectives.filter(function (o) { return o.done; }).length;
         var badge = q.complete === 1 ? '<span class="badge">Ready to turn in</span>' : q.complete === -1 ? '<span class="badge fail">Failed</span>'
           : (q.objectives.length ? '<span class="prog">' + doneN + "/" + q.objectives.length + "</span>" : "");
-        html += '<div class="q' + (closedQuests[q.id] ? " closed" : "") + (route && route.qid === q.id ? " routed" : "") + '" data-qid="' + q.id + '"><div class="qt"><span class="lv">[' + esc(q.level) + "]</span><span>" + esc(q.title) + "</span>" + badge +
+        html += '<div class="q' + (closedQuests[q.id] ? " closed" : "") + (route && route.qid === q.id ? " routed" : "") + '" data-qid="' + q.id + '"><div class="qt" style="color:' + questColor(q) + '"><span class="lv">[' + questLevel(q) + "]</span><span>" + esc(q.title) + "</span>" + questTag(q) + badge +
           '<span class="qa"><button data-qact="track">Track</button><button data-qact="route">Route &#10148;</button></span></div>';
         if (q.objectives.length) html += "<ul>" + q.objectives.map(function (o) { return '<li class="' + (o.done ? "done" : "") + '">' + esc(o.text) + "</li>"; }).join("") + "</ul>";
         html += "</div>";
@@ -463,13 +476,16 @@
   var MAT = { "7:9": ["Herbs", "Herbalism"], "7:7": ["Ore & Stone", "Mining"], "7:6": ["Leather", "Skinning"], "7:5": ["Cloth", "Tailoring"],
     "7:8": ["Meat & Fish", "Cooking"], "7:12": ["Enchanting", "Enchanting"], "7:10": ["Elemental", ""], "7:1": ["Parts", "Engineering"],
     "7:2": ["Explosives", "Engineering"], "7:3": ["Devices", "Engineering"], "7:4": ["Jewelcrafting", "Jewelcrafting"], "7:16": ["Inscription", "Inscription"] };
+  var GATHERING = { Herbalism: 1, Mining: 1, Skinning: 1, Fishing: 1 };
   function renderProf() {
     var skills = state && state.skills || [], mine = {};
     skills.forEach(function (k) { mine[k.name] = true; });
     var html = skills.length ? "" : '<div class="sk"><div class="t"><span>No professions yet</span></div></div>';
     skills.forEach(function (k) {
       var pct = k.max ? Math.round(100 * k.rank / k.max) : 0;
-      html += '<div class="sk"><div class="t"><span>' + esc(k.name) + "</span><span>" + k.rank + " / " + k.max + '</span></div><div class="bar"><i style="width:' + pct + '%"></i></div></div>';
+      var nrec = (state.recipes || []).filter(function (r) { return r.prof === k.name; }).length;
+      html += '<div class="sk tap' + (k.name === recProf ? " on" : "") + '" data-skill="' + esc(k.name) + '" data-id="' + (k.id || "") + '"><div class="t"><span>' + esc(k.name) + "</span><span>" + k.rank + " / " + k.max +
+        '</span></div><div class="bar"><i style="width:' + pct + '%"></i></div><div class="sub">' + (nrec ? nrec + (nrec === 1 ? " recipe" : " recipes") : GATHERING[k.name] ? "Gathering skill" : "Recipes not read yet: tap to open in WoW") + "</div></div>";
     });
     var z = mapLevels.zone || (state && state.maps && state.maps[0]);
     html += '<div class="sk nodes"><div class="t"><span>Learned nodes in ' + esc(z ? z.name : "this zone") + '</span></div><div class="row">' +
@@ -543,6 +559,14 @@
         (r.qty > 1 ? " \u00D7" + r.qty : "") + "</span>" + badge + '</div><div class="rg">' + rg + "</div></div>";
     }).join("") || '<div class="rnone">Nothing you can make right now.</div>';
   }
+  $("skills").addEventListener("click", function (e) {
+    var el = e.target.closest(".sk.tap"); if (!el) return;
+    var name = el.dataset.skill, has = (state.recipes || []).some(function (r) { return r.prof === name; });
+    if (has) { recProf = name; store("edgelink.recProf", recProf); renderProf(); $("rlist").scrollTop = 0; return; }
+    if (GATHERING[name]) { toast(name + " is a gathering skill: its nodes are on the Map tab"); return; }
+    if (canControl() && el.dataset.id) sendGame("6" + el.dataset.id, "Opening " + name + " in WoW to read its recipes");
+    else toast("Open " + name + " in WoW once and its recipes will appear here", true);
+  });
   $("rbar").addEventListener("click", function (e) {
     var b = e.target.closest("button"); if (!b) return;
     if (b.dataset.prof) { recProf = b.dataset.prof; store("edgelink.recProf", recProf); }
@@ -556,7 +580,7 @@
   function dur(sec) { if (!isFinite(sec) || sec <= 0) return "--"; var h = Math.floor(sec / 3600), m = Math.round(sec % 3600 / 60); return h ? h + " h " + m + " min" : m + " min"; }
   function renderSession() {
     var se = state && state.session, p = state && state.player;
-    if (!se || !p) { $("scards").innerHTML = '<div class="empty">No session data yet.</div>'; $("reps").innerHTML = ""; return; }
+    if (!se || !p) { $("scards").innerHTML = '<div class="empty">No session data yet.</div>'; return; }
     var hrs = se.start ? Math.max(1 / 60, (Date.now() / 1000 - se.start) / 3600) : 0;
     var per = function (n) { return hrs ? Math.round(n / hrs) : 0; };
     var xpHr = per(se.xpGained || 0), left = (se.xpMax || 0) - (se.xp || 0);
@@ -574,6 +598,9 @@
         ["Fishing", se.fish || 0], ["Chests", se.chests || 0]]) +
       card("Game", (se.fps || "--") + " FPS", [["Latency", se.ms ? se.ms + " ms" : "--"], ["Lowest durability", se.durLow != null ? '<span style="color:' + durColor(se.durLow) + '">' + se.durLow + "%</span>" : "--"],
         ["Session length", dur(hrs * 3600)]]);
+  }
+  function renderReps() {
+    if (!state) return;
     var reps = (state.reps || []).slice().sort(function (a, b) { return (b.reaction - a.reaction) || ((b.value - b.min) / Math.max(1, b.max - b.min) - (a.value - a.min) / Math.max(1, a.max - a.min)); });
     $("reps").innerHTML = '<h3>Reputation</h3>' + (reps.length ? reps.map(function (r) {
       var span = Math.max(1, r.max - r.min), v = Math.max(0, r.value - r.min), w = r.max > r.min ? Math.min(100, 100 * v / span) : 100;
@@ -657,7 +684,77 @@
     });
     renderPinBar(); renderPins(); renderZoneQuests(); drawArea();
     updatePos();
+    renderBrowse();
   }
+
+  /* Browsing other maps in the right-hand frame: tap a region to open it, Back to go up, World for the whole map */
+  var browse = null;     // id of the map being looked at, or null for your own continent (the live view)
+  function mapTree() { return state && state.tree || []; }
+  function treeNode(id) { return mapTree().filter(function (t) { return t.id === id; })[0]; }
+  function treeKids(id) { return mapTree().filter(function (t) { return t.p === id; }); }
+  function worldMap() { return (state && state.maps || []).filter(function (m) { return m.type === 1; })[0] || null; }
+  // The smallest child region that contains the point
+  function childAt(parentId, x, y) {
+    var hits = treeKids(parentId).filter(function (c) { var r = c.rect; return x >= r[0] && x <= r[1] && y >= r[2] && y <= r[3]; });
+    hits.sort(function (a, b) { return (a.rect[1] - a.rect[0]) * (a.rect[3] - a.rect[2]) - (b.rect[1] - b.rect[0]) * (b.rect[3] - b.rect[2]); });
+    return hits[0] || null;
+  }
+  function openMap(id) {
+    browse = (mapLevels.cont && id === mapLevels.cont.id) ? null : id;
+    hideTip(); renderBrowse();
+  }
+  function browseInfo() {
+    if (browse == null) return null;
+    var n = treeNode(browse), w = worldMap();
+    if (n) return { id: n.id, name: n.name, parent: n.p, kids: treeKids(n.id).length };
+    if (w && w.id === browse) return { id: w.id, name: w.name, parent: null, kids: treeKids(w.id).length };
+    return null;
+  }
+  function renderBrowse() {
+    var el = $("browse"), nav = $("bnav"), w = worldMap(), info = browseInfo();
+    if (browse != null && !info) browse = null;
+    var hasTree = mapTree().length > 0 && !!w;
+    nav.style.display = hasTree ? "flex" : "none";
+    nav.querySelector('[data-b="back"]').style.display = info && info.parent != null ? "" : "none";
+    nav.querySelector('[data-b="world"]').style.display = (!info || info.id !== (w && w.id)) ? "" : "none";
+    nav.querySelector('[data-b="home"]').style.display = info ? "" : "none";
+    if (!info) { el.style.display = "none"; return; }
+    el.style.display = "block";
+    el.querySelector(".bl").textContent = info.name;
+    el.querySelector(".bhint").textContent = info.kids ? "Tap a region to open it" : "";
+    var img = el.querySelector("img"), src = BRIDGE + "/mapimg/" + info.id;
+    if (!img || img.dataset.src !== src) {
+      if (img) img.remove();
+      img = document.createElement("img"); img.dataset.src = src; img.alt = "";
+      img.onerror = function () { img.remove(); };
+      img.src = src; el.insertBefore(img, el.firstChild);
+    }
+  }
+  $("bnav").addEventListener("click", function (e) {
+    e.stopPropagation();
+    var b = e.target.closest("[data-b]"); if (!b) return;
+    var info = browseInfo(), w = worldMap();
+    if (b.dataset.b === "home") openMap(mapLevels.cont ? mapLevels.cont.id : null);
+    else if (b.dataset.b === "world" && w) openMap(w.id);
+    else if (b.dataset.b === "back" && info && info.parent != null) openMap(info.parent);
+    if (!mapLevels.cont && b.dataset.b === "home") { browse = null; renderBrowse(); }
+  });
+  $("browse").addEventListener("click", function (e) {
+    e.stopPropagation();
+    if (e.target.closest("#tip")) return;
+    var info = browseInfo(); if (!info) return;
+    var r = $("browse").getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+    var kid = childAt(info.id, x, y);
+    if (kid) return openMap(kid.id);
+    if (info.kids) return hideTip();                      // empty sea between regions
+    if ($("tip").style.display === "block") return hideTip();
+    // A zone: offer a route when it is on your continent (the spot converts to continent coordinates)
+    var n = treeNode(info.id), c = mapLevels.cont, label = info.name + "  " + (x * 100).toFixed(1) + ", " + (y * 100).toFixed(1);
+    if (n && c && n.p === c.id) {
+      var cx = n.rect[0] + x * (n.rect[1] - n.rect[0]), cy = n.rect[2] + y * (n.rect[3] - n.rect[2]);
+      showMapTip(e.clientX, e.clientY, "Map location", label, { map: c.id, x: cx, y: cy, label: label });
+    } else showMapTip(e.clientX, e.clientY, "Map location", label + "  (another continent: no route)", null);
+  });
 
   /* Map pins: flight points, dungeons, points of interest, quest objectives */
   var PIN_GLYPH = { F: "\u2708", D: "\u2691", A: "\u2605", Q: "!", W: "\u2316", V: "\u2620" };
@@ -762,6 +859,7 @@
       // Empty spot: offer a route to this exact place
       if (!fm || $("tip").style.display === "block") return hideTip();
       var px = (cx - fr.left) / fr.width, py = (cy - fr.top) / fr.height;
+      if (frame.id === "mf-cont") { var kid = childAt(fm.id, px, py); if (kid) return openMap(kid.id); }
       return showMapTip(cx, cy, "Map location", fm.name + "  " + (px * 100).toFixed(1) + ", " + (py * 100).toFixed(1),
         { map: fm.id, x: px, y: py, label: fm.name + " " + (px * 100).toFixed(1) + ", " + (py * 100).toFixed(1) });
     }
@@ -816,6 +914,7 @@
     if (b.dataset.tact === "track") trackQuest(tipTarget.qid);
     else if (tipTarget.qid) routeToQuest(tipTarget.qid);
     else setRoute({ map: tipTarget.map, x: tipTarget.x, y: tipTarget.y, label: tipTarget.label });
+    if (browse != null) { browse = null; renderBrowse(); }
     hideTip();
   });
   $("maps").addEventListener("click", function (e) {
@@ -841,7 +940,7 @@
     document.querySelector("#zq .zql").innerHTML = qs.map(function (q) {
       var area = areaFor(q.id, zid);
       var na = selQuest === q.id && !area ? '<div class="na">' + (hasR ? "No objective area on this map" : "Quest areas aren't available from this game client") + "</div>" : "";
-      return '<div class="zqi' + (selQuest === q.id ? " sel" : "") + '" data-qid="' + q.id + '"><div class="t"><span class="lv">[' + esc(q.level) + "]</span><span>" + esc(q.title) + "</span>" +
+      return '<div class="zqi' + (selQuest === q.id ? " sel" : "") + '" data-qid="' + q.id + '"><div class="t" style="color:' + questColor(q) + '"><span class="lv">[' + questLevel(q) + "]</span><span>" + esc(q.title) + "</span>" + questTag(q) +
         (q.complete === 1 ? '<span class="rd">Ready to turn in</span>' : q.complete === -1 ? '<span class="rd" style="color:var(--bad)">Failed</span>' : "") + "</div>" +
         q.objectives.map(function (o) { return '<div class="o' + (o.done ? " done" : "") + '">' + esc(o.text) + "</div>"; }).join("") + na +
         (selQuest === q.id ? '<div class="za"><button data-zact="track">Track in WoW</button></div>' : "") + "</div>";
@@ -931,6 +1030,26 @@
     route = r;
     if (!r || !r.qid) { if (selQuest && (!r || r.qid !== selQuest)) { selQuest = null; renderZoneQuests(); renderPins(); drawArea(); } }
     renderQuests(); drawRoute();
+    requestNav();
+  }
+  /* Polestar (optional addon): ask its walking router for the real path to the route target */
+  var navSent = null;        // { map, x, y } last asked for
+  function requestNav() {
+    if (!hasCap("P") || !canControl()) { navSent = null; return; }
+    if (!route) { if (navSent) { navSent = null; sendGame("70", "Route cleared"); } return; }
+    var t = routeTarget(), z = mapLevels.zone, c = mapLevels.cont; if (!t || !z) return;
+    var m = z, p = t.z;
+    if (p[0] <= 0 || p[0] >= 1 || p[1] <= 0 || p[1] >= 1) { m = c; p = c ? toCont(z.id, p[0], p[1]) : null; }
+    if (!m || !p || p[0] <= 0 || p[0] >= 1 || p[1] <= 0 || p[1] >= 1) return;
+    var d4 = function (v) { return ("000" + Math.max(0, Math.min(9999, Math.round(v * 10000)))).slice(-4); };
+    navSent = { map: m.id, x: +d4(p[0]) / 10000, y: +d4(p[1]) / 10000 };
+    sendGame("7" + ("0000" + m.id).slice(-5) + d4(p[0]) + d4(p[1]), "Asking Polestar for the walking path");
+  }
+  // Polestar's answer for the target we asked about, if it has arrived
+  function navAnswer() {
+    var n = state && state.nav;
+    if (!n || !navSent || !route || n.map !== navSent.map || Math.abs(n.x - navSent.x) > 0.0002 || Math.abs(n.y - navSent.y) > 0.0002) return null;
+    return n;
   }
   function routeToQuest(qid) {
     var q = questById(qid);
@@ -1114,6 +1233,18 @@
   function walkPath(me, to) {
     var z = mapLevels.zone, n = 256;
     var key = [z.id, Math.floor(me[0] * n), Math.floor(me[1] * n), Math.round(to[0] * 2000), Math.round(to[1] * 2000), trailAt, suggest].join(",");
+    // Polestar's path first: start it from the corner nearest you, so the line doesn't lead backwards
+    var nv = suggest ? navAnswer() : null;
+    if (nv && nv.status === "ok" && nv.pts.length > 1) {
+      var bi = 0, bd = Infinity;
+      nv.pts.forEach(function (q, i) { var d = zDist2(q, me); if (d < bd) { bd = d; bi = i; } });
+      if (bi < nv.pts.length - 1) {
+        // skip the nearest corner if it is behind you relative to the next one
+        var a = nv.pts[bi], b = nv.pts[bi + 1];
+        if ((b[0] - a[0]) * (me[0] - a[0]) + (b[1] - a[1]) * (me[1] - a[1]) > 0) bi++;
+      }
+      return { pts: [me].concat(nv.pts.slice(bi)), learned: true, polestar: true };
+    }
     if (key !== pathKey) { pathKey = key; pathCache = suggest ? trailPath(me, to) : null; }
     if (pathCache) { var p = pathCache.slice(); p[0] = me; return { pts: p, learned: true }; }
     return { pts: [me, to], learned: false };
@@ -1137,7 +1268,8 @@
     } else if (!me) {
       distEl.textContent = pos && pos.combat ? "In combat: position paused" : "Waiting for your position"; turnEl.textContent = "";
     } else {
-      var fp = suggest ? flightPlan(me, t.z) : null, walkTo = t.z;
+      var nvA = suggest ? navAnswer() : null, viaPolestar = !!(nvA && nvA.status === "ok" && nvA.pts.length > 1);
+      var fp = suggest && !viaPolestar ? flightPlan(me, t.z) : null, walkTo = t.z;
       if (fp && fp.az) {
         walkTo = fp.az;
         zoneMarks = [fp.az, t.z];
@@ -1156,6 +1288,10 @@
       var dx = (aim[0] - me[0]) * (z.yw || 1), dy = (aim[1] - me[1]) * (z.yh || 1);
       distEl.textContent = z.yw ? fmtDist(total) : "";
       turnEl.textContent = pos.taxi ? "In flight" : (z.yw && total < 25) ? (fp ? "Talk to the flight master" : "You're there") : turnText(dx, dy, pos.facing);
+      var NAV_WHY = { searching: "Polestar is working out the path", noengine: "Polestar's walking maps are not loaded", othermap: "Polestar walks one continent at a time",
+        nodata: "Polestar has no walking map here", outside: "Polestar has no walking map for that spot", offmesh: "Polestar can't reach that exact spot", unreachable: "Polestar found no walking path", error: "Polestar's router reported an error" };
+      if (wp.polestar) steps = "Walking path from Polestar";
+      else if (!steps && nvA && NAV_WHY[nvA.status]) steps = NAV_WHY[nvA.status] + (nvA.status === "searching" ? "" : ": showing a straight line");
       if (!steps && wp.learned) steps = "Following a trail you've walked before";
       if (pos.taxi) zoneSegs = [];
     }
@@ -1214,7 +1350,7 @@
         var key = JSON.stringify(j.data);
         if (key !== lastKey) {
           lastKey = key; state = j.data;
-          renderHeader(); renderBags(); renderGear(); renderQuests(); renderMap(); renderProf(); renderSession(); layout();
+          renderHeader(); renderBags(); renderGear(); renderQuests(); renderMap(); renderProf(); renderSession(); renderReps(); layout();
           if (selected) { var it = findItem(selected); if (!it) { selected = null; hideTip(); } }
         }
       }

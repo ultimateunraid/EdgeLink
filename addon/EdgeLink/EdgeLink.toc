@@ -2,8 +2,8 @@
 ## Title: EdgeLink |cff7fd4ff[Xeneon Edge bridge]|r
 ## Notes: Publishes bags, equipment, quests and location as a pixel strip for the EdgeLink companion app (Corsair Xeneon Edge widgets). Out-of-combat data only.
 ## Author: ultimateunraid
-## Version: 1.0.0
-## OptionalDeps: Auctionator, TomTom
+## Version: 1.3.0
+## OptionalDeps: Auctionator, TomTom, Polestar
 ## SavedVariables: EdgeLinkDB
 
 EdgeLink.lua

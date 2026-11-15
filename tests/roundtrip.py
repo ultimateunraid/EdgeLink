@@ -218,7 +218,7 @@ def main():
     assert not any(l.startswith("C\t") for l in text.split("\n")), "character capture was removed"
     kl = [l.split("\t") for l in text.split("\n") if l.startswith("K\t")]
     assert [k[1] for k in kl] == ["Herbalism", "Mining", "First Aid", "Fishing"], kl   # no weapon skills
-    assert kl[0][2:] == ["75", "150"]
+    assert kl[0][2:4] == ["75", "150"]
     bl = [l.split("\t") for l in text.split("\n") if l.startswith("B\t")]
     assert all(len(b) == 12 for b in bl), bl[0]
     assert any(b[8:10] == ["7", "9"] for b in bl) and any(b[8:10] == ["7", "7"] for b in bl)

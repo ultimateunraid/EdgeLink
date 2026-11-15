@@ -25,7 +25,7 @@ Even so, a program that reads the game window and can send keys is a grey area u
 - Corsair iCUE 5.47 or newer and a Xeneon Edge
 - The game window must be visible on a monitor (the strip has to be on screen)
 
-Optional addons: **Auctionator** (auction values for your bags) and **TomTom** (its waypoints appear on the Edge map).
+Optional addons: **Auctionator** (auction values for your bags), **TomTom** (its waypoints appear on the Edge map) and **Polestar** (real walking paths for routes; experimental).
 
 ## Install
 
@@ -43,19 +43,21 @@ Releases are not code-signed yet, so Windows SmartScreen or your antivirus may w
 | Tab | Contents |
 |---|---|
 | Bags | Every bag on one screen, vendor and auction value, junk total, and an all-characters view of bags and bank |
-| Gear | Equipped items with durability, and your stats |
+| Character Info | Equipped items with durability, your stats, and reputations |
 | Quests | Quest log by zone, with Track and Route buttons |
-| Map | Zone and continent maps with your live position, flight points, points of interest, learned herb and ore nodes, rare alerts, coordinates entry, and routes |
+| Map | Zone map with your live position, a browsable world map (tap a region to open it), flight points, points of interest, learned herb and ore nodes, rare alerts, coordinates entry, and routes |
 | Professions | Skill levels, recipes with how many you can make from your bags and bank, and materials |
-| Session | XP and gold per hour, time to level, gathering counts, FPS, latency, durability, reputations |
+| Session | XP and gold per hour, time to level, gathering counts, FPS, latency, durability |
 
 Routes show a line from you to the target with distance and turn direction. "Suggested path" follows trails you have walked before and proposes flight legs for long trips.
+
+**Polestar (optional, experimental):** if the [Polestar](https://www.curseforge.com/wow/addons/polestar) addon is installed and "Let widget taps control WoW" is on, EdgeLink asks Polestar's walking router for the path and draws that instead. EdgeLink only calls the installed addon at run time; it contains none of Polestar's code or maps.
 
 Some data can only be read while a game window is open: open your **bank** once and each **profession window** once, and EdgeLink remembers them.
 
 ## Slash commands
 
-`/edgelink on|off|refresh|areas|nodes [clear]|casts|rate <seconds>|cmd <digits>`
+`/edgelink on|off|refresh|areas|nodes [clear]|casts|recipes|rate <seconds>|cmd <digits>`
 
 ## Privacy
 
@@ -67,6 +69,16 @@ Everything stays on your PC, with two exceptions, both optional (set `Icons=fals
 No account names, character names or other personal data are sent anywhere. The companion only listens on `localhost`.
 
 Saved data: `%LOCALAPPDATA%\EdgeLink` (log, image cache, learned trails, per-character inventories) and the addon's `EdgeLink.lua` SavedVariables file.
+
+## Uninstall
+
+1. Right-click the tray icon and choose **Exit**. If you ticked **Start with Windows**, untick it first.
+2. Delete the EdgeLink folder you unzipped.
+3. Delete the addon folder `World of Warcraft\_forever_\Interface\AddOns\EdgeLink`.
+4. Remove the EdgeLink WoW widget in iCUE.
+5. Optional: delete `%LOCALAPPDATA%\EdgeLink` (log, caches, learned trails, saved inventories) and the addon's saved data file `WTF\Account\<account>\SavedVariables\EdgeLink.lua`.
+
+EdgeLink writes two registry values under your user account only: `HKCU\Software\EdgeLink` (the control setting) and, if you ticked Start with Windows, an entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Delete them if you want no trace left. Nothing is installed system-wide.
 
 ## Build from source
 
@@ -96,7 +108,7 @@ python tests/input_test.py
 
 ## Troubleshooting
 
-- **Widget says "WoW not running" or "Waiting for addon":** the game window must be on screen and not minimised, with the addon enabled. Loading screens and a hidden interface (Alt+Z) pause the data.
+- **Widget says "WoW not running" or "Waiting for addon":** the game window must be on screen and not minimised, with the addon enabled. Loading screens and a hidden interface (Alt+Z) pause the data. A performance overlay drawn over the top-left corner of the game (for example a GPU vendor's FPS bar) covers the pixel strip and has the same effect: move it or turn it off.
 - **A tap does nothing in WoW:** check the tray option is ticked, and that the chat box is not open; key presses are ignored while you are typing.
 - **No herbs or ore on the map:** nodes are learned as you gather. `/edgelink casts` shows what the addon saw.
 - **No recipes or bank items:** open the profession window or the bank once.

@@ -3,7 +3,7 @@
   "id": "com.ultimateunraid.edgelink.wow",
   "name": "EdgeLink WoW",
   "description": "Touch panels for World of Warcraft bags, equipment, quests and location. Needs the EdgeLink addon and companion app running on this PC.",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "preview_icon": "resources/icon.svg",
   "min_framework_version": "1.0.0",
   "min_app_version": "5.47",

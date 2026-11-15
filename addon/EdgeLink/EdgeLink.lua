@@ -133,8 +133,17 @@ local function NumSlots(bag)
     return 0
 end
 
+-- Item lookups moved into C_Item on newer clients; use whichever exists.
+local ItemInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+local ItemInfoInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+
+-- Bags you carry: backpack, the four bag slots, and the reagent bag where the client has one.
+function ns.LastCarriedBag()
+    return NUM_TOTAL_EQUIPPED_BAG_SLOTS or ((NUM_BAG_SLOTS or 4) + (NUM_REAGENTBAG_SLOTS or 0))
+end
+
 local function CollectBags(out)
-    local lastBag = NUM_BAG_SLOTS or 4
+    local lastBag = ns.LastCarriedBag()
     for bag = 0, lastBag do
         local slots = NumSlots(bag)
         if slots > 0 then
@@ -153,14 +162,14 @@ local function CollectBags(out)
             rec(out, "S", bag, slots, free, bagName)
             for _, it in ipairs(items) do
                 local classID, subClassID = "", ""
-                if GetItemInfoInstant then
-                    local r = { pcall(GetItemInfoInstant, it[2]) }
+                if ItemInfoInstant then
+                    local r = { pcall(ItemInfoInstant, it[2]) }
                     if r[1] then classID, subClassID = r[7] or "", r[8] or "" end
                 end
                 -- vendor price (each) and, when Auctionator is installed, its last known auction price (each)
                 local sell, ah = "", ""
-                if GetItemInfo then
-                    local r = { pcall(GetItemInfo, it[2]) }
+                if ItemInfo then
+                    local r = { pcall(ItemInfo, it[2]) }
                     if r[1] and type(r[12]) == "number" then sell = r[12] end
                 end
                 local A = Auctionator and Auctionator.API and Auctionator.API.v1
@@ -211,7 +220,17 @@ local function CollectQuests(out)
                     local objs = {}
                     local raw = C_QuestLog.GetQuestObjectives and C_QuestLog.GetQuestObjectives(id) or {}
                     for _, o in ipairs(raw) do objs[#objs + 1] = { text = o.text, finished = o.finished } end
-                    rec(out, "Q", id, info.level or "", complete, info.title, JoinObjectives(objs))
+                    -- tag: "Elite", "Group", "Dungeon"... as shown beside the quest in the log
+                    local tag = ""
+                    if C_QuestLog.GetQuestTagInfo then
+                        local okT, t = pcall(C_QuestLog.GetQuestTagInfo, id)
+                        if okT and type(t) == "table" and t.tagName then tag = t.tagName end
+                    elseif GetQuestTagInfo then
+                        local okT, _, tagName = pcall(GetQuestTagInfo, id)
+                        if okT and tagName then tag = tagName end
+                    end
+                    if tag == "" and (info.suggestedGroup or 0) > 1 then tag = "Group" end
+                    rec(out, "Q", id, info.level or "", complete, info.title, JoinObjectives(objs), tag)
                     ns.questIDs[#ns.questIDs + 1] = id
                 end
             end
@@ -281,6 +300,38 @@ local function CollectMap(out)
         id = info.parentMapID
     end
     return levels
+end
+
+-- Map tree for browsing on the Edge: the world map's continents and each continent's zones, with where each
+-- child sits on its parent.   C  parentID  childID  name  mapType  minX maxX minY maxY
+-- The tree never changes during a session, so it is built once.
+local function CollectTree(out, levels)
+    if not ns.mapTree then
+        if not (C_Map and C_Map.GetMapChildrenInfo and C_Map.GetMapRectOnMap) then return end
+        local world
+        for _, l in ipairs(levels or {}) do if l.mapType == 1 then world = l.id end end
+        if not world then return end                          -- e.g. inside an instance: try again later
+        local lines, n = {}, 0
+        local function add(parent, wantType)
+            local kids = C_Map.GetMapChildrenInfo(parent, wantType, false) or {}
+            table.sort(kids, function(a, b) return a.mapID < b.mapID end)
+            local found = {}
+            for _, k in ipairs(kids) do
+                local ok, a, b, c, d = pcall(C_Map.GetMapRectOnMap, k.mapID, parent)
+                if ok and a and b and b > a and d > c and n < 160 then
+                    n = n + 1
+                    lines[#lines + 1] = { parent, k.mapID, k.name or "", k.mapType or 0,
+                        string.format("%.4f", a), string.format("%.4f", b), string.format("%.4f", c), string.format("%.4f", d) }
+                    found[#found + 1] = k.mapID
+                end
+            end
+            return found
+        end
+        for _, cont in ipairs(add(world, 2)) do add(cont, 3) end
+        if n == 0 then return end
+        ns.mapTree = lines
+    end
+    for _, l in ipairs(ns.mapTree) do rec(out, "C", l[1], l[2], l[3], l[4], l[5], l[6], l[7], l[8]) end
 end
 
 -- Map pins for the zone and continent maps. Every provider is optional and pcall-guarded:
@@ -356,6 +407,7 @@ local function CollectPins(out, levels)
     if TomTom then list[#list + 1] = "T" end
     if Auctionator and Auctionator.API then list[#list + 1] = "U" end
     if C_VignetteInfo and C_VignetteInfo.GetVignettes then list[#list + 1] = "N" end
+    if _G.Polestar_NavEngine or (C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("Polestar")) then list[#list + 1] = "P" end
     if C_Map and C_Map.SetUserWaypoint and UiMapPoint then list[#list + 1] = "W" end
     rec(out, "Z", concat(list, ","))
 end
@@ -369,6 +421,10 @@ local PROFESSIONS = {
     Engineering = true, Leatherworking = true, Tailoring = true, Jewelcrafting = true, Inscription = true,
     Cooking = true, ["First Aid"] = true, Fishing = true,
 }
+-- Skill line IDs, so the Edge can ask the game to open a profession window (C_TradeSkillUI.OpenTradeSkill)
+ns.PROF_IDS = { Alchemy = 171, Blacksmithing = 164, Enchanting = 333, Engineering = 202, Herbalism = 182, Inscription = 773,
+    Jewelcrafting = 755, Leatherworking = 165, Mining = 186, Skinning = 393, Tailoring = 197, Cooking = 185, ["First Aid"] = 129,
+    Fishing = 356 }
 local function CollectSkills(out)
     if GetNumSkillLines and GetSkillLineInfo then
         local section
@@ -377,15 +433,15 @@ local function CollectSkills(out)
             if isHeader then
                 section = name
             elseif name and (PROFESSIONS[name] or (TRADE_SKILLS and section == TRADE_SKILLS) or (SECONDARY_SKILLS and section == SECONDARY_SKILLS)) then
-                rec(out, "K", name, rank or 0, maxRank or 0)
+                rec(out, "K", name, rank or 0, maxRank or 0, ns.PROF_IDS[name] or "")
             end
         end
     elseif GetProfessions and GetProfessionInfo then
         local list = { GetProfessions() }
         for i = 1, 5 do
             if list[i] then
-                local name, _, rank, maxRank = GetProfessionInfo(list[i])
-                if name then rec(out, "K", name, rank or 0, maxRank or 0) end
+                local name, _, rank, maxRank, _, _, skillLine = GetProfessionInfo(list[i])
+                if name then rec(out, "K", name, rank or 0, maxRank or 0, skillLine or ns.PROF_IDS[name] or "") end
             end
         end
     end
@@ -669,40 +725,78 @@ end
 -- Recipes: read while a profession window is open, remembered per character, sent every time.
 --   J  profession  recipeName  difficulty(0 orange..3 grey)  outputItemID  outputCount  reagents
 --      reagents = "itemID,count,name" joined by 0x1F
-function ns.ScanRecipes(db)
+local function ItemIdFromLink(link) return link and tonumber(tostring(link):match("item:(%d+)")) end
+local function ItemName(id)
+    return (C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(id)) or (ItemInfo and ItemInfo(id)) or ""
+end
+-- Reads the open profession window. Returns profession name, recipe list, and a note saying which API answered.
+function ns.ReadRecipes()
     local T = C_TradeSkillUI
-    if not (T and T.GetAllRecipeIDs and T.GetRecipeInfo and T.GetRecipeSchematic) then return 0 end
-    if T.IsTradeSkillLinked and T.IsTradeSkillLinked() then return 0 end      -- someone else's profession link
-    local prof = T.GetBaseProfessionInfo and T.GetBaseProfessionInfo()
-    local profName = prof and (prof.professionName or prof.parentProfessionName)
-    if not profName or profName == "" then return 0 end
-    local list = {}
-    for _, id in ipairs(T.GetAllRecipeIDs() or {}) do
-        local info = T.GetRecipeInfo(id)
-        if info and info.learned and info.name and not info.isRecraft then
-            local okS, sch = pcall(T.GetRecipeSchematic, id, false)
-            local reagents, outID, outQty = {}, 0, 1
-            if okS and sch then
-                outID, outQty = sch.outputItemID or 0, sch.quantityMin or 1
-                for _, slot in ipairs(sch.reagentSlotSchematics or {}) do
-                    local r = slot.reagents and slot.reagents[1]
-                    if r and r.itemID and slot.required ~= false and (slot.reagentType == nil or slot.reagentType == 1) then
-                        local name = (C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(r.itemID))
-                            or (GetItemInfo and GetItemInfo(r.itemID)) or ""
-                        reagents[#reagents + 1] = { r.itemID, slot.quantityRequired or 1, name }
+    local list, profName, how = {}, nil, "none"
+    if T and T.GetAllRecipeIDs and T.GetRecipeInfo then
+        if T.IsTradeSkillLinked and T.IsTradeSkillLinked() then return nil, list, "linked profession (not yours)" end
+        local base = T.GetBaseProfessionInfo and T.GetBaseProfessionInfo()
+        profName = base and (base.professionName or base.parentProfessionName)
+        if not profName or profName == "" then
+            local child = T.GetChildProfessionInfo and T.GetChildProfessionInfo()
+            profName = child and (child.parentProfessionName or child.professionName)
+        end
+        if (not profName or profName == "") and T.GetTradeSkillLine then
+            local _, lineName, _, _, _, _, parentName = T.GetTradeSkillLine()
+            profName = parentName or lineName
+        end
+        local ids = T.GetAllRecipeIDs() or {}
+        how = "C_TradeSkillUI (" .. #ids .. " ids)"
+        for _, id in ipairs(ids) do
+            local info = T.GetRecipeInfo(id)
+            if info and info.learned and info.name and not info.isRecraft then
+                local reagents, outID, outQty = {}, 0, 1
+                local okS, sch = pcall(T.GetRecipeSchematic, id, false)
+                if okS and type(sch) == "table" then
+                    outID, outQty = sch.outputItemID or 0, sch.quantityMin or 1
+                    for _, slot in ipairs(sch.reagentSlotSchematics or {}) do
+                        local r = slot.reagents and slot.reagents[1]
+                        if r and r.itemID and slot.required ~= false and (slot.reagentType == nil or slot.reagentType == 1) then
+                            reagents[#reagents + 1] = { r.itemID, slot.quantityRequired or 1, ItemName(r.itemID) }
+                        end
                     end
                 end
+                list[#list + 1] = { id, info.name, info.relativeDifficulty or 3, outID, outQty, reagents }
             end
-            list[#list + 1] = { id, info.name, info.relativeDifficulty or 3, outID, outQty, reagents }
         end
     end
-    if #list == 0 then return 0 end
+    -- Older trade skill API (classic-style clients)
+    if #list == 0 and GetNumTradeSkills and GetTradeSkillInfo then
+        local DIFF = { optimal = 0, medium = 1, easy = 2, trivial = 3 }
+        profName = (GetTradeSkillLine and GetTradeSkillLine()) or profName
+        local n = GetNumTradeSkills() or 0
+        how = "GetTradeSkillInfo (" .. n .. " rows)"
+        for i = 1, n do
+            local name, kind = GetTradeSkillInfo(i)
+            if name and kind ~= "header" and kind ~= "subheader" then
+                local reagents = {}
+                for r = 1, (GetTradeSkillNumReagents and GetTradeSkillNumReagents(i) or 0) do
+                    local rname, _, count = GetTradeSkillReagentInfo(i, r)
+                    local rid = ItemIdFromLink(GetTradeSkillReagentItemLink and GetTradeSkillReagentItemLink(i, r))
+                    if rid then reagents[#reagents + 1] = { rid, count or 1, rname or "" } end
+                end
+                local outID = ItemIdFromLink(GetTradeSkillItemLink and GetTradeSkillItemLink(i)) or 0
+                local made = GetTradeSkillNumMade and GetTradeSkillNumMade(i) or 1
+                list[#list + 1] = { outID > 0 and outID or i, name, DIFF[kind] or 3, outID, made, reagents }
+            end
+        end
+    end
+    return profName, list, how
+end
+function ns.ScanRecipes(db)
+    local profName, list = ns.ReadRecipes()
+    if not profName or profName == "" or #list == 0 then return 0 end
     table.sort(list, function(a, b) if a[2] ~= b[2] then return a[2] < b[2] end return a[1] < b[1] end)
     db.recipes = db.recipes or {}
     local key = ns.CharKey()
     db.recipes[key] = db.recipes[key] or {}
     db.recipes[key][profName] = list
-    return #list
+    return #list, profName
 end
 local function CollectRecipes(out)
     local mine = ns.recipeDB and ns.recipeDB[ns.CharKey()]
@@ -733,7 +827,7 @@ function ns.ScanBank(db)
     local bags, seen, totals, order = {}, {}, {}, {}
     local function add(b) if b and not seen[b] then seen[b] = true; bags[#bags + 1] = b end end
     add(BANK_CONTAINER or -1)
-    local first = (NUM_BAG_SLOTS or 4) + 1
+    local first = ns.LastCarriedBag() + 1                     -- skip the reagent bag: it is carried, not banked
     for b = first, first + (NUM_BANKBAGSLOTS or 7) do add(b) end
     if Enum and Enum.BagIndex then
         for i = 1, 8 do add(Enum.BagIndex["CharacterBankTab_" .. i]) end
@@ -801,6 +895,40 @@ local function CollectWaypoints(out, levels)
     end
 end
 
+---------------------------------------------------------------------------
+-- Optional: walking paths from Polestar's router, when the player has Polestar installed. EdgeLink only asks
+-- that addon's engine (the global Polestar_NavEngine) a question at run time; none of its code or maps are copied.
+--   L  status  yards  targetMap  targetX  targetY  "x,y;x,y;..."   (path in the current zone map's coordinates)
+-- status: ok, searching, or why there is no path (noengine, othermap, nodata, outside, offmesh, unreachable, error)
+---------------------------------------------------------------------------
+ns.nav = { status = "" }
+local function WorldFromMap(mapID, x, y)
+    if not (C_Map and C_Map.GetWorldPosFromMapPos and CreateVector2D) then return nil end
+    local ok, inst, pos = pcall(C_Map.GetWorldPosFromMapPos, mapID, CreateVector2D(x, y))
+    if not ok or not pos then return nil end
+    local wx, wy = pos:GetXY()
+    return inst, wx, wy
+end
+local function CollectNav(out, levels)
+    local nav, t = ns.nav, ns.nav.target
+    if not t then return end
+    local pts = ""
+    local zone = levels and levels[1] and levels[1].id
+    if nav.path and zone then
+        -- world -> zone map: world X runs north-south (map y), world Y east-west (map x)
+        local i0, x0, y0 = WorldFromMap(zone, 0, 0)
+        local i1, x1, y1 = WorldFromMap(zone, 1, 1)
+        if i0 and i1 and i0 == t.inst and x0 ~= x1 and y0 ~= y1 then
+            local parts = {}
+            for i, w in ipairs(nav.path) do
+                parts[i] = string.format("%.4f,%.4f", (y0 - w[2]) / (y0 - y1), (x0 - w[1]) / (x0 - x1))
+            end
+            pts = concat(parts, ";")
+        end
+    end
+    rec(out, "L", nav.status or "", string.format("%.0f", nav.yards or 0), t.map, string.format("%.4f", t.x), string.format("%.4f", t.y), pts)
+end
+
 function ns.BuildSnapshot()
     local out = {}
     local ok_, err_
@@ -832,6 +960,10 @@ function ns.BuildSnapshot()
         ok, err = pcall(c[2], out)
         if not ok then rec(out, "X", c[1] .. ": " .. tostring(err)) end
     end
+    ok, err = pcall(CollectNav, out, levels)
+    if not ok then rec(out, "X", "nav: " .. tostring(err)) end
+    ok, err = pcall(CollectTree, out, levels)
+    if not ok then rec(out, "X", "map tree: " .. tostring(err)) end
     ok, err = pcall(CollectWaypoints, out, levels)
     if not ok then rec(out, "X", "waypoints: " .. tostring(err)) end
     return concat(out, "\n")
@@ -1026,8 +1158,8 @@ local function LootFallback()
     for i = 1, GetNumLootItems() do
         local link = GetLootSlotLink and GetLootSlotLink(i)
         local itemID = link and tonumber(link:match("item:(%d+)"))
-        if itemID and GetItemInfoInstant then
-            local name, _, _, _, _, classID, subClassID = GetItemInfoInstant(itemID)
+        if itemID and ItemInfoInstant then
+            local name, _, _, _, _, classID, subClassID = ItemInfoInstant(itemID)
             local kind = ns.LootKind(classID, subClassID)
             if kind then
                 local mapID, x, y = PlayerSpot()
@@ -1174,6 +1306,128 @@ do
     end
 end
 
+-- Polestar walking paths: ask its router, keep the answer, ask again when the player strays from it
+do
+    local nav = ns.nav
+    local function Engine()
+        local P = _G.Polestar_NavEngine
+        if (type(P) ~= "table" or type(P.Find) ~= "function") and not nav.loadTried and not InCombatLockdown()
+            and C_AddOns and C_AddOns.LoadAddOn then
+            nav.loadTried = true                     -- its maps are large: loaded once, on the first request
+            pcall(C_AddOns.LoadAddOn, "Polestar_Nav")
+            P = _G.Polestar_NavEngine
+        end
+        if type(P) == "table" and type(P.Find) == "function" then return P end
+    end
+    -- Keep corners, drop points on straight stretches, and cap the count so the path stays small on the strip
+    local function Thin(points)
+        local out, n = {}, #points
+        local step = math.max(1, math.ceil(n / 400))
+        local keep = {}
+        for i = 1, n, step do keep[#keep + 1] = points[i] end
+        if keep[#keep] ~= points[n] then keep[#keep + 1] = points[n] end
+        out[1] = { keep[1].x, keep[1].y }
+        for i = 2, #keep - 1 do
+            local a, b, c = out[#out], keep[i], keep[i + 1]
+            local ax, ay, bx, by = b.x - a[1], b.y - a[2], c.x - b.x, c.y - b.y
+            local cross = math.abs(ax * by - ay * bx)
+            local len = math.sqrt(ax * ax + ay * ay)
+            -- keep when the line bends (more than ~2.5 yd off straight) or the stretch is getting long
+            if (len > 0 and cross / len > 2.5) or len > 150 then out[#out + 1] = { b.x, b.y } end
+        end
+        local last = keep[#keep]
+        out[#out + 1] = { last.x, last.y }
+        while #out > 160 do
+            local thin = { out[1] }
+            for i = 2, #out - 1, 2 do thin[#thin + 1] = out[i] end
+            thin[#thin + 1] = out[#out]
+            out = thin
+        end
+        return out
+    end
+    local function Fail(why) nav.path, nav.yards, nav.status = nil, 0, why; dirty = true end
+    function ns.NavRequest()
+        local t = nav.target
+        if not t then return end
+        nav.lastTry = GetTime()
+        local P = Engine()
+        if not P then return Fail("noengine") end
+        local px, py, pz, inst = UnitPosition("player")
+        if not px or inst ~= t.inst then return Fail("othermap") end
+        if P.Available and not P.Available(inst) then return Fail("nodata") end
+        if nav.job and P.Cancel then pcall(P.Cancel, nav.job) end
+        local mine = {}
+        nav.token = mine
+        local faction = UnitFactionGroup and UnitFactionGroup("player") or nil
+        if faction ~= "Alliance" and faction ~= "Horde" then faction = nil end
+        local ok, job = pcall(P.Find, inst, { x = px, y = py, z = pz }, { x = t.wx, y = t.wy }, function(points, cost, job)
+            if nav.token ~= mine then return end       -- an older search finishing late
+            nav.job = nil
+            if type(points) == "table" and #points > 1 then
+                local okT, thin = pcall(Thin, points)
+                if okT then
+                    nav.path, nav.status = thin, "ok"
+                    nav.yards = (type(job) == "table" and type(job.yards) == "number" and job.yards) or 0
+                    dirty = true
+                    return
+                end
+            end
+            Fail(type(cost) == "string" and cost or "unreachable")
+        end, { waterWalking = false, profile = faction })
+        if ok then
+            nav.job = job
+            if nav.status ~= "ok" then nav.status = "searching"; dirty = true end
+        else
+            Fail("error")
+        end
+    end
+    function ns.NavSet(mapID, x, y)
+        if not mapID then
+            if nav.job and _G.Polestar_NavEngine and _G.Polestar_NavEngine.Cancel then pcall(_G.Polestar_NavEngine.Cancel, nav.job) end
+            nav.target, nav.path, nav.job, nav.token, nav.status = nil, nil, nil, nil, ""
+            dirty = true
+            return true
+        end
+        local inst, wx, wy = WorldFromMap(mapID, x, y)
+        if not inst then print("|cff7fd4ffEdgeLink|r that spot has no world position."); return false end
+        nav.target = { map = mapID, x = x, y = y, inst = inst, wx = wx, wy = wy }
+        nav.path, nav.status = nil, "searching"
+        dirty = true
+        ns.NavRequest()
+        return true
+    end
+    -- How far the player is from the path (yards, to the nearest corner or along a stretch)
+    local function OffPath(px, py)
+        local best = math.huge
+        local path = nav.path
+        for i = 1, #path - 1 do
+            local ax, ay, bx, by = path[i][1], path[i][2], path[i + 1][1], path[i + 1][2]
+            local dx, dy = bx - ax, by - ay
+            local len2 = dx * dx + dy * dy
+            local u = len2 > 0 and ((px - ax) * dx + (py - ay) * dy) / len2 or 0
+            if u < 0 then u = 0 elseif u > 1 then u = 1 end
+            local ex, ey = ax + u * dx - px, ay + u * dy - py
+            local d = ex * ex + ey * ey
+            if d < best then best = d end
+        end
+        return math.sqrt(best)
+    end
+    if C_Timer and C_Timer.NewTicker then
+        C_Timer.NewTicker(2, function()
+            local t = nav.target
+            if not t or nav.job or InCombatLockdown() then return end
+            local px, py, _, inst = UnitPosition("player")
+            if not px then return end
+            local since = GetTime() - (nav.lastTry or 0)
+            if nav.path and inst == t.inst then
+                if OffPath(px, py) > 40 and since > 4 then ns.NavRequest() end
+            elseif since > 15 then
+                ns.NavRequest()                          -- no path yet (or just changed continent): try again
+            end
+        end)
+    end
+end
+
 -- Taps on the Edge widget arrive as short key bursts sent by the companion (only when the user enables it):
 --   CTRL-SHIFT-F11, then digits as CTRL-SHIFT-F1..F10 (= 0..9), then CTRL-SHIFT-F12.
 -- First digit is the action; the rest are its argument. One tap = one interface action (never movement or combat).
@@ -1181,6 +1435,7 @@ end
 --   2<questID>                open the quest log at that quest
 --   3<mapID:5><x:3><y:3>      set the in-game map waypoint (x, y in thousandths)
 --   4                         clear the in-game waypoint
+--   7<mapID:5><x:4><y:4>      ask Polestar (if installed) for a walking path to that spot; 70 clears it
 --   5<n>                      toggle a window: 1 bags, 2 world map, 3 character, 4 sort bags, 5 quest log
 local inputBuf, inputAt
 local inputOwner = CreateFrame("Frame")
@@ -1224,6 +1479,21 @@ function ns.RunCommand(digits)
     elseif action == "4" then
         if C_Map and C_Map.ClearUserWaypoint then pcall(C_Map.ClearUserWaypoint) end
         return true
+    elseif action == "7" then
+        -- Route target for Polestar's walking router: 7<mapID:5><x:4><y:4> (ten-thousandths), or 70 to clear
+        if arg == "0" then return ns.NavSet(nil) end
+        if #arg ~= 13 then return false end
+        return ns.NavSet(tonumber(arg:sub(1, 5)), tonumber(arg:sub(6, 9)) / 10000, tonumber(arg:sub(10, 13)) / 10000)
+    elseif action == "6" then
+        -- Open one of your profession windows so its recipes can be read. Not in combat.
+        if InCombatLockdown() then say("profession windows can't be opened from the Edge during combat."); return false end
+        local id = tonumber(arg)
+        if not (id and C_TradeSkillUI and C_TradeSkillUI.OpenTradeSkill) then
+            say("open the profession window in game once and its recipes will appear on the Edge."); return false
+        end
+        local okO, opened = pcall(C_TradeSkillUI.OpenTradeSkill, id)
+        if not okO or opened == false then say("could not open that profession from the Edge; open it in game once instead.") end
+        return okO
     elseif action == "5" then
         -- Open or close a game window (the same thing its keybind does). Not in combat.
         if InCombatLockdown() then say("windows can't be opened from the Edge during combat."); return false end
@@ -1286,6 +1556,15 @@ SlashCmdList.EDGELINK = function(msg)
         -- run a widget command by hand, e.g. /edgelink cmd 1<questID>
         if arg:match("^%d+$") then ns.RunCommand(arg) else say("usage: /edgelink cmd <digits>") end
         return
+    elseif cmd == "recipes" then
+        local okR, profName, list, how = pcall(ns.ReadRecipes)
+        if not okR then say("recipe read failed: " .. tostring(profName)); return end
+        say(string.format("profession window: %s, %d recipes read via %s.", tostring(profName or "none open"), #(list or {}), tostring(how)))
+        local n = ns.ScanRecipes(EdgeLinkDB)
+        if n > 0 then dirty = true; say("saved " .. n .. " recipes.") else say("nothing saved. Open a profession window first, then run this again.") end
+        local mine = ns.recipeDB and ns.recipeDB[ns.CharKey()] or {}
+        for name, l in pairs(mine) do print("  " .. name .. ": " .. #l .. " recipes stored") end
+        return
     elseif cmd == "casts" then
         print("|cff7fd4ffEdgeLink|r recent casts on named targets (newest first):")
         if #ns.castLog == 0 then print("  none yet - gather something, then try again") end
@@ -1315,7 +1594,7 @@ SlashCmdList.EDGELINK = function(msg)
         return
     end
     local _, physH = GetPhysicalScreenSize()
-    print(string.format("|cff7fd4ffEdgeLink|r %s - snapshot %d, %d page(s), %d bytes, page every %.2fs, screen height %d px. Commands: /edgelink on|off|refresh|areas|nodes|casts|rate <sec>",
+    print(string.format("|cff7fd4ffEdgeLink|r %s - snapshot %d, %d page(s), %d bytes, page every %.2fs, screen height %d px. Commands: /edgelink on|off|refresh|areas|nodes|casts|recipes|rate <sec>",
         EdgeLinkDB.enabled and "ON" or "OFF", snapshotId, chunks and #chunks or 0,
         lastPayload and #lastPayload or 0, EdgeLinkDB.pageInterval, physH or 0))
 end

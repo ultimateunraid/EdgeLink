@@ -198,7 +198,8 @@ namespace EdgeLink
             List<string> reps = new List<string>();
             List<string> bank = new List<string>();
             List<string> recipes = new List<string>();
-            string session = "null", charName = null, charRealm = "";
+            List<string> tree = new List<string>();
+            string session = "null", charName = null, charRealm = "", navJson = "null";
             string caps = null;
             string error = null;
             StringBuilder bagItems = null; string bagHead = null;
@@ -267,7 +268,7 @@ namespace EdgeLink
                         }
                         quests.Add("{\"id\":" + Json.Num(F(f, 1)) + ",\"level\":" + Json.Num(F(f, 2)) +
                                    ",\"complete\":" + Json.Num(F(f, 3)) + ",\"title\":" + Json.Esc(F(f, 4)) +
-                                   ",\"group\":" + Json.Esc(group) + ",\"objectives\":[" + objs + "]}");
+                                   ",\"group\":" + Json.Esc(group) + ",\"tag\":" + Json.Esc(F(f, 6)) + ",\"objectives\":[" + objs + "]}");
                         break;
                     case "M":
                         // v2: M id widthYards heightYards name mapType minX maxX minY maxY (current map first, then parents)
@@ -294,7 +295,7 @@ namespace EdgeLink
                         break;
                     case "K":
                         skills.Add("{\"name\":" + Json.Esc(F(f, 1)) + ",\"rank\":" + Json.Num(F(f, 2)) +
-                                   ",\"max\":" + Json.Num(F(f, 3)) + "}");
+                                   ",\"max\":" + Json.Num(F(f, 3)) + ",\"id\":" + Json.Num(F(f, 4)) + "}");
                         break;
                     case "W":
                         StringBuilder pts = new StringBuilder();
@@ -336,6 +337,26 @@ namespace EdgeLink
                         bank.Add("{\"id\":" + Json.Num(F(f, 1)) + ",\"count\":" + Json.Num(F(f, 2)) + ",\"q\":" + Json.Num(F(f, 3)) +
                                  ",\"name\":" + Json.Esc(F(f, 4)) + "}");
                         break;
+                    case "C":
+                        tree.Add("{\"p\":" + Json.Num(F(f, 1)) + ",\"id\":" + Json.Num(F(f, 2)) + ",\"name\":" + Json.Esc(F(f, 3)) +
+                                 ",\"type\":" + Json.Num(F(f, 4)) + ",\"rect\":[" + Json.Num(F(f, 5)) + "," + Json.Num(F(f, 6)) + "," +
+                                 Json.Num(F(f, 7)) + "," + Json.Num(F(f, 8)) + "]}");
+                        int cid;
+                        if (MapNames != null && int.TryParse(F(f, 2), out cid))
+                            lock (MapNames) { if (!MapNames.ContainsKey(cid)) MapNames[cid] = F(f, 3) + "\t" + F(f, 4); }
+                        break;
+                    case "L":
+                        StringBuilder np = new StringBuilder();
+                        foreach (string pt in F(f, 6).Split(';'))
+                        {
+                            string[] xy = pt.Split(',');
+                            if (xy.Length != 2) continue;
+                            if (np.Length > 0) np.Append(',');
+                            np.Append('[').Append(Json.Num(xy[0])).Append(',').Append(Json.Num(xy[1])).Append(']');
+                        }
+                        navJson = "{\"status\":" + Json.Esc(F(f, 1)) + ",\"yards\":" + Json.Num(F(f, 2)) + ",\"map\":" + Json.Num(F(f, 3)) +
+                                  ",\"x\":" + Json.Num(F(f, 4)) + ",\"y\":" + Json.Num(F(f, 5)) + ",\"pts\":[" + np + "]}";
+                        break;
                     case "J":
                         StringBuilder rg = new StringBuilder();
                         foreach (string part in F(f, 6).Split('\u001f'))
@@ -371,11 +392,12 @@ namespace EdgeLink
                    "],\"stats\":[" + string.Join(",", stats.ToArray()) +
                    "],\"skills\":[" + string.Join(",", skills.ToArray()) +
                    "],\"nodes\":[" + string.Join(",", nodes.ToArray()) +
-                   "],\"session\":" + session +
+                   "],\"nav\":" + navJson + ",\"session\":" + session +
                    ",\"nearby\":[" + string.Join(",", nearby.ToArray()) +
                    "],\"reps\":[" + string.Join(",", reps.ToArray()) +
                    "],\"bank\":[" + string.Join(",", bank.ToArray()) +
                    "],\"recipes\":[" + string.Join(",", recipes.ToArray()) +
+                   "],\"tree\":[" + string.Join(",", tree.ToArray()) +
                    "],\"addonError\":" + Json.Esc(error) + "}";
         }
 

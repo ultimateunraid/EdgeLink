@@ -63,4 +63,34 @@ assert "not in your quest log" in g._log[len(g._log)]
 assert ns.GatherKind("Herbalism") == "H" and ns.GatherKind("Herb Gathering") == "H" and ns.GatherKind("Mining") == "M"
 assert ns.GatherKind("Opening") == "T" and ns.GatherKind("Fireball") is None
 assert ns.LootKind(7, 9) == "H" and ns.LootKind(7, 7) == "M" and ns.LootKind(2, 7) is None
+# --- Polestar walking path: command 7 asks the (stubbed) router and the answer comes back as an L record
+lua.execute(b"""
+CreateVector2D = function(x, y) return { x = x, y = y, GetXY = function(self) return self.x, self.y end } end
+function C_Map.GetWorldPosFromMapPos(mapID, v) return 0, CreateVector2D(1000 - v.y * 1000, 2000 - v.x * 2000) end
+function UnitPosition() return 900, 1800, 5, 0 end           -- map (0.1, 0.1)
+function UnitFactionGroup() return "Alliance" end
+_finds = 0
+Polestar_NavEngine = {
+  Available = function(map) return map == 0 end,
+  Cancel = function() end,
+  Find = function(map, from, to, cb, opts)
+    _finds = _finds + 1; _from, _to, _opts = from, to, opts
+    cb({ { map = 0, x = from.x, y = from.y }, { map = 0, x = 700, y = 1800 }, { map = 0, x = 700, y = 1000 }, { map = 0, x = to.x, y = to.y } }, 123, { yards = 1100 })
+    return {}
+  end,
+}
+""")
+press("B7014320500" + "0500E")      # map 1432 at 0.05, 0.05 -> wrong length is ignored below; this one is 13 digits
+assert g._finds == 1, g._finds
+assert abs(g._to.x - 950) < 1e-6 and abs(g._to.y - 1900) < 1e-6 and g._opts.profile == "Alliance"
+assert ns.nav.status == "ok" and ns.nav.yards == 1100 and len(ns.nav.path) == 4
+out = lua.eval("(function() local o = {}; local ok, e = pcall(function() return EdgeLink.BuildSnapshot() end); return ok and e or ('ERR ' .. tostring(e)) end)()")
+line = [l for l in str(out).split("\n") if l.startswith("L\t")]
+assert line, str(out)[:300]
+f = line[0].split("\t")
+assert f[1] == "ok" and f[2] == "1100" and f[3] == "1432", f
+pts = [tuple(map(float, q.split(","))) for q in f[6].split(";")]
+assert abs(pts[0][0] - 0.1) < 1e-3 and abs(pts[0][1] - 0.1) < 1e-3 and abs(pts[1][1] - 0.3) < 1e-3, pts
+press("B70E")
+assert ns.nav.target is None
 print("INPUT OK")
