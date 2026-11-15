@@ -2,7 +2,35 @@
 
 Touch panels for **World of Warcraft: Forever** on the **Corsair Xeneon Edge** (2560x720): bags, gear, quests, a live map with routes, professions and session stats.
 
+![EdgeLink map tab on the Xeneon Edge: zone map with a route, continent map and quest list](docs/screenshots/map.jpg)
+
+**[Download the latest release](https://github.com/ultimateunraid/EdgeLink/releases/latest)**
+
 EdgeLink is free and open source (MIT). It is a hobby project, not affiliated with or endorsed by Blizzard Entertainment, Corsair or Elgato.
+
+## Screenshots
+
+The panel fills the Edge at 2560x720 and is styled after the game's own interface. These were taken with sample data.
+
+**Bags** - every bag on one screen, with vendor value and junk totals.
+
+![Bags tab](docs/screenshots/bags.jpg)
+
+**Character Info** - equipped items with durability, stats and reputations.
+
+![Character Info tab](docs/screenshots/character.jpg)
+
+**Quests** - the quest log by zone in the in-game difficulty colours, with Track and Route buttons.
+
+![Quests tab](docs/screenshots/quests.jpg)
+
+**Professions** - skill levels, what you can make right now, and your materials.
+
+![Professions tab](docs/screenshots/professions.jpg)
+
+**Session** - XP and gold per hour, time to level, gathering counts, FPS and latency.
+
+![Session tab](docs/screenshots/session.jpg)
 
 ## Read this first: how it works, and the risk
 
@@ -29,7 +57,7 @@ Optional addons: **Auctionator** (auction values for your bags), **TomTom** (its
 
 ## Install
 
-1. Download the latest release and unzip it anywhere.
+1. Download the [latest release](https://github.com/ultimateunraid/EdgeLink/releases/latest) and unzip it anywhere.
 2. Run `EdgeLink.exe`. It appears in the system tray.
 3. Right-click the tray icon:
    - **Install / update WoW addon** copies the addon into your WoW folder.
@@ -105,6 +133,7 @@ python tests/input_test.py
 | `companion/` | Tray app and bridge (C#), build script, optional PowerShell launcher |
 | `widget/` | The iCUE widget (HTML, CSS, JavaScript) |
 | `tests/` | Protocol and input-decoder tests |
+| `docs/screenshots/` | Images used in this README |
 
 ## Troubleshooting
 
@@ -115,4 +144,4 @@ python tests/input_test.py
 
 ## Licence
 
-[MIT](LICENSE). World of Warcraft is a trademark of Blizzard Entertainment, Inc. Map and icon images are fetched from Wowhead at run time and are not part of this repository.
+[MIT](LICENSE). World of Warcraft is a trademark of Blizzard Entertainment, Inc. Map and icon images are fetched from Wowhead at run time and are not part of this repository; they appear here only inside the screenshots. The panel's frames, buttons and textures are drawn in CSS and contain no game art.
