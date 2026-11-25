@@ -9,8 +9,8 @@ if not exist "%CSC%" ( echo csc.exe not found - .NET Framework 4.x is required. 
 set OUT=..\dist\EdgeLink
 if not exist "%OUT%" mkdir "%OUT%"
 "%CSC%" /nologo /target:winexe /optimize+ /platform:anycpu /out:"%OUT%\EdgeLink.exe" /win32icon:EdgeLink.ico ^
-  /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll ^
-  AssemblyInfo.cs EdgeLinkApp.cs EdgeLinkCore.cs
+  /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll ^
+  AssemblyInfo.cs EdgeLinkApp.cs EdgeLinkCore.cs Updater.cs
 if errorlevel 1 ( echo BUILD FAILED & exit /b 1 )
 robocopy ..\widget "%OUT%\widget" /MIR /NFL /NDL /NJH /NJS >nul
 robocopy ..\addon "%OUT%\addon" /MIR /NFL /NDL /NJH /NJS >nul

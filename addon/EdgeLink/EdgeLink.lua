@@ -19,7 +19,8 @@ _G.EdgeLink = ns
 --   8-9  Fletcher-16 over bytes 10..16 and the payload
 --   10-11 uiMapID (BE)      12-13 x * 65535     14-15 y * 65535
 --   16   facing (0-254 = 0..2pi, 255 = unknown)
---   17   flags: 1 = position valid, 2 = in combat (position frozen)
+--   17   flags: 1 = position valid, 2 = in combat (position frozen), 4 = on a flight path,
+--        8 = vendor open, 16 = bank open, 32 = profession window open, 64 = mailbox open, 128 = flight map open
 --   18.. payload
 -- Position rides in every page header so the map dot moves ~10x per second
 -- without waiting for a full snapshot.
@@ -166,21 +167,87 @@ local function CollectBags(out)
                     local r = { pcall(ItemInfoInstant, it[2]) }
                     if r[1] then classID, subClassID = r[7] or "", r[8] or "" end
                 end
-                -- vendor price (each) and, when Auctionator is installed, its last known auction price (each)
+                -- vendor price (each) and, when Auctionator or Auctioneer is installed, an auction price (each)
                 local sell, ah = "", ""
                 if ItemInfo then
                     local r = { pcall(ItemInfo, it[2]) }
                     if r[1] and type(r[12]) == "number" then sell = r[12] end
                 end
-                local A = Auctionator and Auctionator.API and Auctionator.API.v1
-                if A and A.GetAuctionPriceByItemID then
-                    local ok, price = pcall(A.GetAuctionPriceByItemID, "EdgeLink", it[2])
-                    if ok and type(price) == "number" then ah = price end
-                end
+                ah = ns.AuctionPrice(it[2]) or ""
                 rec(out, "B", bag, it[1], it[2], it[3], it[4], it[5], it[6], classID, subClassID, sell, ah)
             end
         end
     end
+end
+
+-- Auction price (copper, each) from Auctionator's last scan, else Auctioneer's market value. nil when neither knows.
+function ns.AuctionPrice(itemID)
+    local A = Auctionator and Auctionator.API and Auctionator.API.v1
+    if A and A.GetAuctionPriceByItemID then
+        local ok, price = pcall(A.GetAuctionPriceByItemID, "EdgeLink", itemID)
+        if ok and type(price) == "number" and price > 0 then return math.floor(price) end
+    end
+    local Auc = AucAdvanced and AucAdvanced.API
+    if Auc and Auc.GetMarketValue then
+        local ok, price = pcall(Auc.GetMarketValue, itemID)
+        if ok and type(price) == "number" and price > 0 then return math.floor(price) end
+    end
+end
+function ns.HasAuctionSource()
+    return (Auctionator and Auctionator.API and true) or (AucAdvanced and AucAdvanced.API and AucAdvanced.API.GetMarketValue and true) or false
+end
+
+---------------------------------------------------------------------------
+-- Header status:  I  hearthLocation  hearthReadyAt(epoch, 0 = ready, "" = no Hearthstone)  newMail(0/1)  repairCost
+-- The cooldown is sent as the time it ends (not "seconds left"), so an unchanged game gives an unchanged
+-- snapshot; the widget counts down itself.
+---------------------------------------------------------------------------
+local HEARTHSTONE = 6948
+ns.hearthReadyAt = nil
+function ns.UpdateHearth()
+    local count = (C_Item and C_Item.GetItemCount or GetItemCount)
+    if not (count and (count(HEARTHSTONE) or 0) > 0) then ns.hearthReadyAt = ""; return end
+    local cd = (C_Container and C_Container.GetItemCooldown) or GetItemCooldown
+    local start, duration = 0, 0
+    if cd then
+        local ok, s, d = pcall(cd, HEARTHSTONE)
+        if ok then start, duration = s or 0, d or 0 end
+    end
+    if start > 0 and duration > 1.5 then
+        ns.hearthReadyAt = floor(time() + (start + duration - GetTime()) + 0.5)
+    else
+        ns.hearthReadyAt = 0
+    end
+end
+local scanTip
+local function RepairCost()
+    local total = 0
+    if C_TooltipInfo and C_TooltipInfo.GetInventoryItem then
+        local any = false
+        for slot = 1, 19 do
+            local ok, data = pcall(C_TooltipInfo.GetInventoryItem, "player", slot)
+            if ok and type(data) == "table" and type(data.repairCost) == "number" then total = total + data.repairCost; any = true end
+        end
+        if any then return total end
+    end
+    if not scanTip then
+        scanTip = CreateFrame("GameTooltip", "EdgeLinkScanTip", nil, "GameTooltipTemplate")
+    end
+    scanTip:SetOwner(WorldFrame, "ANCHOR_NONE")
+    for slot = 1, 19 do
+        local ok, hasItem, _, cost = pcall(scanTip.SetInventoryItem, scanTip, "player", slot)
+        if ok and hasItem and type(cost) == "number" then total = total + cost end
+    end
+    scanTip:Hide()
+    return total
+end
+local function CollectStatus(out)
+    if ns.hearthReadyAt == nil then ns.UpdateHearth() end
+    local repair = ""
+    local ok, cost = pcall(RepairCost)
+    if ok and type(cost) == "number" then repair = floor(cost) end
+    rec(out, "I", GetBindLocation and GetBindLocation() or "", ns.hearthReadyAt or "",
+        (HasNewMail and HasNewMail()) and 1 or 0, repair)
 end
 
 local function CollectEquipment(out)
@@ -405,11 +472,154 @@ local function CollectPins(out, levels)
     if ns.areaSupport then list[#list + 1] = "R" end
     if ns.inputReady then list[#list + 1] = "I" end
     if TomTom then list[#list + 1] = "T" end
-    if Auctionator and Auctionator.API then list[#list + 1] = "U" end
+    if ns.HasAuctionSource() then list[#list + 1] = "U" end
+    if ns.ServicesAvailable() then list[#list + 1] = "S" end
     if C_VignetteInfo and C_VignetteInfo.GetVignettes then list[#list + 1] = "N" end
     if _G.Polestar_NavEngine or (C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("Polestar")) then list[#list + 1] = "P" end
     if C_Map and C_Map.SetUserWaypoint and UiMapPoint then list[#list + 1] = "W" end
+    if ns.FriendsAvailable() then list[#list + 1] = "G" end
     rec(out, "Z", concat(list, ","))
+end
+
+---------------------------------------------------------------------------
+-- Friends and group: who you know is online, and where.
+--   F  kind  name  class  level  mapID  x  y  area  flags  tag
+--      kind:  G group member (party/raid): exact spot when the game gives one, else mapID/x/y empty
+--             R character friend, B Battle.net friend in WoW: zone name only (the game gives no spot)
+--      class: class token (WARRIOR, MAGE...) so the Edge can colour it; empty if unknown
+--      flags: a away, d busy, o offline (group member), x playing a different WoW version
+--      tag:   BattleTag without the #number (B only). Real ID names are never read.
+-- Read-only: the game already shows all of this in the friends list and on the map; nothing is sent
+-- to anyone. Turn off with /edgelink friends off.
+---------------------------------------------------------------------------
+function ns.FriendsAvailable()
+    return (C_FriendList ~= nil or GetNumFriends ~= nil or BNGetNumFriends ~= nil or IsInGroup ~= nil)
+end
+
+local classTokens
+function ns.ClassToken(name)
+    if not name or name == "" then return "" end
+    if not classTokens then
+        classTokens = {}
+        for _, t in ipairs({ LOCALIZED_CLASS_NAMES_MALE, LOCALIZED_CLASS_NAMES_FEMALE }) do
+            if type(t) == "table" then for token, loc in pairs(t) do classTokens[loc] = token end end
+        end
+    end
+    local up = tostring(name):upper():gsub("%s", "")
+    return classTokens[name] or (RAID_CLASS_COLORS and RAID_CLASS_COLORS[up] and up) or ""
+end
+
+local function GroupUnits()
+    local units = {}
+    if IsInRaid and IsInRaid() then
+        for i = 1, (GetNumGroupMembers and GetNumGroupMembers() or 0) do units[#units + 1] = "raid" .. i end
+    elseif IsInGroup and IsInGroup() then
+        for i = 1, 4 do units[#units + 1] = "party" .. i end
+    end
+    return units
+end
+
+-- Where a group member stands: on their own zone map first, then on ours. The game returns nothing
+-- inside dungeons and for members far away; then only their name is shown.
+local function UnitSpot(unit, playerMap)
+    if not (C_Map and C_Map.GetPlayerMapPosition) then return nil end
+    local own = C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit(unit)
+    for i = 1, 2 do
+        local mapID = i == 1 and own or playerMap
+        if mapID and not (i == 2 and mapID == own) then
+            local ok, pos = pcall(C_Map.GetPlayerMapPosition, mapID, unit)
+            if ok and pos then
+                local x, y = XY(pos)
+                if x and y and (x > 0 or y > 0) and x <= 1 and y <= 1 then return mapID, x, y end
+            end
+        end
+    end
+end
+
+local function f3(v) return v and string.format("%.3f", v) or "" end
+
+function ns.CollectFriends(out)
+    if EdgeLinkDB and EdgeLinkDB.friends == false then return end
+    local rows, seen = {}, {}
+    local myRealm = GetRealmName and GetRealmName() or ""
+    local playerMap = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    -- Group first: these are the only ones with a real position
+    for _, unit in ipairs(GroupUnits()) do
+        if UnitExists and UnitExists(unit) and not (UnitIsUnit and UnitIsUnit(unit, "player")) then
+            local name, realm = UnitName(unit)
+            if name and name ~= "" then
+                local full = (realm and realm ~= "" and realm ~= myRealm) and (name .. "-" .. realm) or name
+                if not seen[full] then
+                    seen[full] = true
+                    local _, class = UnitClass(unit)
+                    local online = not UnitIsConnected or UnitIsConnected(unit)
+                    local mapID, x, y
+                    if online then mapID, x, y = UnitSpot(unit, playerMap) end
+                    rows[#rows + 1] = { "G", full, class or "", UnitLevel(unit) or "", mapID or "", f3(x), f3(y), "",
+                        online and "" or "o", "" }
+                end
+            end
+        end
+    end
+    local friends = {}
+    -- Character friends (online only)
+    if C_FriendList and C_FriendList.GetNumFriends and C_FriendList.GetFriendInfoByIndex then
+        for i = 1, C_FriendList.GetNumFriends() or 0 do
+            local ok, f = pcall(C_FriendList.GetFriendInfoByIndex, i)
+            if ok and f and f.connected and f.name and not seen[f.name] then
+                seen[f.name] = true
+                friends[#friends + 1] = { "R", f.name, ns.ClassToken(f.className), f.level or "", "", "", "", f.area or "",
+                    (f.afk and "a" or "") .. (f.dnd and "d" or ""), "" }
+            end
+        end
+    elseif GetNumFriends and GetFriendInfo then
+        for i = 1, GetNumFriends() or 0 do
+            local name, level, class, area, connected, status = GetFriendInfo(i)
+            if connected and name and not seen[name] then
+                seen[name] = true
+                local fl = (status == (CHAT_FLAG_AFK or "<AFK>") and "a" or "") .. (status == (CHAT_FLAG_DND or "<DND>") and "d" or "")
+                friends[#friends + 1] = { "R", name, ns.ClassToken(class), level or "", "", "", "", area or "", fl, "" }
+            end
+        end
+    end
+    -- Battle.net friends who are in WoW right now. Only the character, its zone and the BattleTag's name part.
+    if BNGetNumFriends and C_BattleNet and C_BattleNet.GetFriendAccountInfo then
+        local wowClient = BNET_CLIENT_WOW or "WoW"
+        for i = 1, BNGetNumFriends() or 0 do
+            local ok, a = pcall(C_BattleNet.GetFriendAccountInfo, i)
+            local g = ok and type(a) == "table" and a.gameAccountInfo
+            if g and g.isOnline and g.clientProgram == wowClient and g.characterName and g.characterName ~= "" then
+                local realm = g.realmName or ""
+                local name = g.characterName .. ((realm ~= "" and realm ~= myRealm) and ("-" .. realm) or "")
+                if not seen[name] then
+                    seen[name] = true
+                    local other = (g.wowProjectID and WOW_PROJECT_ID and g.wowProjectID ~= WOW_PROJECT_ID) and "x" or ""
+                    local tag = type(a.battleTag) == "string" and a.battleTag:match("^[^#]+") or ""
+                    friends[#friends + 1] = { "B", name, ns.ClassToken(g.className), g.characterLevel or "", "", "", "",
+                        g.areaName or "", ((a.isAFK or g.isGameAFK) and "a" or "") .. ((a.isDND or g.isGameBusy) and "d" or "") .. other, tag }
+                end
+            end
+        end
+    end
+    -- Stable order, so an unchanged list gives an unchanged snapshot
+    table.sort(friends, function(p, q) return p[2]:lower() < q[2]:lower() end)
+    for _, r in ipairs(friends) do rows[#rows + 1] = r end
+    local unpackRow = unpack or table.unpack
+    for i = 1, math.min(#rows, 60) do rec(out, "F", unpackRow(rows[i])) end
+end
+
+-- Signature of group positions (rounded like the record), so a ticker can tell when to rebuild.
+function ns.GroupSignature()
+    if EdgeLinkDB and EdgeLinkDB.friends == false then return "" end
+    local playerMap = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    local parts = {}
+    for _, unit in ipairs(GroupUnits()) do
+        if UnitExists and UnitExists(unit) then
+            local mapID, x, y = UnitSpot(unit, playerMap)
+            parts[#parts + 1] = tostring(mapID) .. f3(x) .. f3(y)
+        end
+    end
+    return concat(parts, ";")
 end
 
 -- Live position for the page header.
@@ -505,6 +715,22 @@ local function CollectNodes(out, mapID)
 end
 
 local livePos = { mapID = 0, x = 0, y = 0, facing = nil, flags = 0 }
+-- Game windows open right now (flag bits 8..128), so the widget can show the matching tab.
+ns.openWindows = 0
+local WINDOW_BITS = {
+    MERCHANT_SHOW = 8, MERCHANT_CLOSED = -8, BANKFRAME_OPENED = 16, BANKFRAME_CLOSED = -16,
+    TRADE_SKILL_SHOW = 32, TRADE_SKILL_CLOSE = -32, MAIL_SHOW = 64, MAIL_CLOSED = -64,
+    TAXIMAP_OPENED = 128, TAXIMAP_CLOSED = -128,
+}
+ns.WINDOW_BITS = WINDOW_BITS
+function ns.WindowEvent(event)
+    local bit = WINDOW_BITS[event]
+    if not bit then return end
+    local b, set = math.abs(bit), bit > 0
+    local has = floor(ns.openWindows / b) % 2 == 1
+    if set and not has then ns.openWindows = ns.openWindows + b
+    elseif not set and has then ns.openWindows = ns.openWindows - b end
+end
 function ns.UpdateLivePos(inCombat)
     if inCombat then
         livePos.flags = (livePos.flags % 2) + 2 -- keep "valid" bit, add "in combat"
@@ -525,6 +751,7 @@ function ns.UpdateLivePos(inCombat)
         end
     end
     livePos.facing = GetPlayerFacing and GetPlayerFacing() or nil
+    livePos.flags = livePos.flags + ns.openWindows
     return livePos
 end
 
@@ -929,12 +1156,239 @@ local function CollectNav(out, levels)
     rec(out, "L", nav.status or "", string.format("%.0f", nav.yards or 0), t.map, string.format("%.4f", t.x), string.format("%.4f", t.y), pts)
 end
 
+---------------------------------------------------------------------------
+-- Optional: the route Polestar is guiding you on right now (its arrow and its map lines), read through its
+-- public namespace at run time (Polestar.Nav.GetTarget / GetTargetWorld / GetRouteGeometry). Nothing is copied.
+--   D  label  targetX  targetY  legs
+--   legs: "kind,current,straight:x,y;x,y|..." in the current zone map's coordinates (may run past 0..1 so the
+--   continent map can draw the whole way). kind: walk, flight, hearth, teleport, portal, lift. Points on other
+--   continents are left out.
+---------------------------------------------------------------------------
+local function PolestarNav()
+    local PS = _G.Polestar
+    local N = type(PS) == "table" and PS.Nav
+    if type(N) == "table" and type(N.GetTarget) == "function" then return N end
+end
+ns.PolestarNav = PolestarNav
+local function ZoneProjector(zone)
+    if not zone then return nil end
+    local i0, x0, y0 = WorldFromMap(zone, 0, 0)
+    local i1, x1, y1 = WorldFromMap(zone, 1, 1)
+    if not (i0 and i1 and i0 == i1 and x0 ~= x1 and y0 ~= y1) then return nil end
+    -- world X runs north-south (map y), world Y east-west (map x)
+    return i0, function(wx, wy) return (y0 - wy) / (y0 - y1), (x0 - wx) / (x0 - x1) end
+end
+local function CollectPolestarRoute(out, levels)
+    local N = PolestarNav()
+    if not N then return end
+    local target = N.GetTarget()
+    if type(target) ~= "table" then return end
+    local inst, proj = ZoneProjector(levels and levels[1] and levels[1].id)
+    if not proj then return end
+    local tx, ty = "", ""
+    if type(N.GetTargetWorld) == "function" then
+        local c, wx, wy = N.GetTargetWorld()
+        if c == inst and wx and wy then
+            local x, y = proj(wx, wy)
+            tx, ty = string.format("%.4f", x), string.format("%.4f", y)
+        end
+    end
+    local legs, total = {}, 0
+    local geom = type(N.GetRouteGeometry) == "function" and N.GetRouteGeometry() or nil
+    if type(geom) == "table" and type(geom.legs) == "table" then
+        for _, leg in ipairs(geom.legs) do
+            local pts = {}
+            if type(leg.pts) == "table" then
+                for _, p in ipairs(leg.pts) do
+                    if p[1] == inst and p[2] and p[3] then pts[#pts + 1] = p end
+                end
+            end
+            if #pts > 1 then legs[#legs + 1] = { leg = leg, pts = pts }; total = total + #pts end
+        end
+    end
+    -- keep the strip small: at most ~140 points over the whole route, ends of every leg kept
+    local step = math.max(1, math.ceil(total / 140))
+    local parts = {}
+    for _, l in ipairs(legs) do
+        local xy, n = {}, #l.pts
+        for i = 1, n do
+            if i == 1 or i == n or (i - 1) % step == 0 then
+                local x, y = proj(l.pts[i][2], l.pts[i][3])
+                xy[#xy + 1] = string.format("%.4f,%.4f", x, y)
+            end
+        end
+        parts[#parts + 1] = string.format("%s,%d,%d:%s", tostring(l.leg.kind or "walk"):gsub("[,:;|]", ""),
+            l.leg.current and 1 or 0, l.leg.straight and 1 or 0, concat(xy, ";"))
+    end
+    rec(out, "D", target.label or "", tx, ty, concat(parts, "|"))
+end
+
+---------------------------------------------------------------------------
+-- Optional: trainers and services from Polestar's NPC database (Polestar.Codex), read at run time.
+-- Nothing is copied. The database is a load-on-demand part of Polestar, so EdgeLink only loads it
+-- when you turn the trainer/service pins on (EdgeLinkDB.services) or Polestar has loaded it already.
+--   A  -                                    the list for this zone is ready (may be empty)
+--   A  category  x  y  name  title  items   category: class, prof:<skillLine>, weapon, repair, bank,
+--                                           auction, stable, vendor; items: reagents of your recipes it sells
+---------------------------------------------------------------------------
+local SVC_ORDER = { "class", "prof", "weapon", "repair", "bank", "auction", "stable", "vendor" }
+local PROF_LINES = { 129, 164, 165, 171, 182, 185, 186, 197, 202, 333, 356, 393 }
+ns.svc = { world = nil, job = nil, failed = nil }
+local function PolestarCodex()
+    local PS = _G.Polestar
+    local C = type(PS) == "table" and PS.Codex
+    if type(C) == "table" and type(C.WithRole) == "function" and type(C.Npc) == "function"
+        and type(PS.Compat) == "table" and type(PS.Compat.MapToWorld) == "function" then
+        return C, PS.Compat
+    end
+end
+function ns.ServicesAvailable() return PolestarCodex() ~= nil end
+local function CodexReady(C)
+    if not C.IsLoaded or C.IsLoaded() then return true end
+    if not (EdgeLinkDB and EdgeLinkDB.services) then return false end
+    local ok, loaded = pcall(C.Load)
+    return ok and loaded and true or false
+end
+-- Every service NPC's positions in world coordinates, built once (a coroutine, a slice per frame).
+function ns.BuildServiceWorld(yieldEvery)
+    local C, Compat = PolestarCodex()
+    if not C or not CodexReady(C) then return nil end
+    local _, class = UnitClass("player")
+    local roleCats = { { "class:" .. (class or "?"), "class" }, { "weapon", "weapon" }, { "repair", "repair" },
+        { "banker", "bank" }, { "auctioneer", "auction" }, { "stablemaster", "stable" }, { "vendor", "vendor" } }
+    for _, line in ipairs(PROF_LINES) do roleCats[#roleCats + 1] = { "trainer:" .. line, "prof:" .. line } end
+    local cats = {}
+    for _, rc in ipairs(roleCats) do
+        local ok, ids = pcall(C.WithRole, rc[1])
+        for _, id in ipairs(ok and ids or {}) do
+            local e = cats[id] or {}
+            cats[id] = e
+            e[rc[2]] = true
+        end
+    end
+    -- vendors that sell reagents of the recipes you know (for the shopping list)
+    local mine = ns.recipeDB and ns.recipeDB[ns.CharKey()]
+    if mine and C.Item then
+        local want = {}
+        for _, list in pairs(mine) do
+            for _, r in ipairs(list) do for _, g in ipairs(r[6] or {}) do want[tonumber(g[1]) or 0] = true end end
+        end
+        for itemID in pairs(want) do
+            local ok, it = pcall(C.Item, itemID)
+            for _, src in ipairs(ok and it and it.sources or {}) do
+                if src.type == "vendor" and src.npc then
+                    local e = cats[src.npc] or {}
+                    cats[src.npc] = e
+                    e.vendor = true
+                    e.items = e.items or {}
+                    e.items[#e.items + 1] = itemID
+                end
+            end
+        end
+    end
+    local f = UnitFactionGroup and UnitFactionGroup("player")
+    local fac = f == "Alliance" and "A" or f == "Horde" and "H" or nil
+    local world, n = {}, 0
+    for id, e in pairs(cats) do
+        local ok, rec = pcall(C.Npc, id)
+        if ok and rec and (rec.faction == nil or rec.faction == "AH" or rec.faction == fac) then
+            local otherTrainer = false
+            for _, r in ipairs(rec.roles or {}) do
+                if type(r) == "string" and (r:sub(1, 6) == "class:" or r == "weapon") then otherTrainer = true end
+            end
+            local cat
+            for _, c in ipairs(SVC_ORDER) do
+                if c == "prof" then
+                    if not otherTrainer then for k in pairs(e) do if k:sub(1, 5) == "prof:" then cat = k end end end
+                elseif e[c] then cat = c end
+                if cat then break end
+            end
+            if cat then
+                local items = e.items and concat(e.items, ",") or ""
+                for _, sp in ipairs(rec.spawns or {}) do
+                    local ok2, c, wx, wy = pcall(Compat.MapToWorld, sp.map, sp.x, sp.y, sp.f)
+                    if ok2 and c and wx and wy then
+                        world[#world + 1] = { cat = cat, name = rec.name or "", title = rec.subName or "", c = c, wx = wx, wy = wy, items = items }
+                    end
+                end
+            end
+        end
+        n = n + 1
+        if yieldEvery and n % yieldEvery == 0 then coroutine.yield() end
+    end
+    return world
+end
+local function StartServiceJob()
+    if ns.svc.job or ns.svc.world or ns.svc.failed then return end
+    local C = PolestarCodex()
+    if not C or not ((C.IsLoaded and C.IsLoaded()) or (EdgeLinkDB and EdgeLinkDB.services)) then return end
+    if not (CreateFrame and coroutine) then return end
+    local co = coroutine.create(function() return ns.BuildServiceWorld(60) end)
+    local runner = CreateFrame("Frame")
+    ns.svc.job = runner
+    runner:SetScript("OnUpdate", function(self)
+        if InCombatLockdown and InCombatLockdown() then return end
+        local ok, result = coroutine.resume(co)
+        if not ok then
+            ns.svc.failed = tostring(result)
+        elseif coroutine.status(co) == "dead" then
+            if result then ns.svc.world = result else ns.svc.failed = "Polestar's NPC database did not load" end
+        else
+            return
+        end
+        self:SetScript("OnUpdate", nil)
+        ns.svc.job = nil
+        if ns.MarkDirty then ns.MarkDirty() end
+    end)
+end
+function ns.ResetServices()
+    ns.svc.world, ns.svc.failed = nil, nil
+end
+local function CollectServices(out, levels)
+    if not ns.ServicesAvailable() then return end
+    if not ns.svc.world then StartServiceJob(); return end
+    local inst, proj = ZoneProjector(levels and levels[1] and levels[1].id)
+    if not proj then return end
+    rec(out, "A", "-")
+    local kept, n = {}, 0
+    for _, s in ipairs(ns.svc.world) do
+        if s.c == inst then
+            local x, y = proj(s.wx, s.wy)
+            if x >= 0 and x <= 1 and y >= 0 and y <= 1 then
+                local key = s.cat .. "|" .. s.name
+                local near = false
+                for _, k in ipairs(kept[key] or {}) do
+                    if (k[1] - x) ^ 2 + (k[2] - y) ^ 2 < 0.00004 then near = true; break end
+                end
+                if not near then
+                    kept[key] = kept[key] or {}
+                    table.insert(kept[key], { x, y })
+                    rec(out, "A", s.cat, string.format("%.4f", x), string.format("%.4f", y), s.name, s.title, s.items)
+                    n = n + 1
+                    if n >= 220 then return end
+                end
+            end
+        end
+    end
+end
+
+-- The addon's own version (## Version in the .toc), shown on the Edge so you can tell which build is loaded
+function ns.AddonVersion()
+    if ns.addonVersion == nil then
+        local get = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+        local ok, v = false, nil
+        if get then ok, v = pcall(get, ADDON_NAME or "EdgeLink", "Version") end
+        ns.addonVersion = (ok and type(v) == "string") and v or ""
+    end
+    return ns.addonVersion
+end
+
 function ns.BuildSnapshot()
     local out = {}
     local ok_, err_
     -- No timestamp here: an unchanged game state must produce an identical payload,
     -- otherwise every rebuild starts a new snapshot and multi-page sends never settle.
-    rec(out, "H", P.VERSION)
+    rec(out, "H", P.VERSION, ns.AddonVersion())
     local _, className = UnitClass("player")
     local raceName = UnitRace("player")
     rec(out, "P", UnitName("player"), GetRealmName and GetRealmName() or "", UnitLevel("player"),
@@ -962,10 +1416,18 @@ function ns.BuildSnapshot()
     end
     ok, err = pcall(CollectNav, out, levels)
     if not ok then rec(out, "X", "nav: " .. tostring(err)) end
+    ok, err = pcall(CollectPolestarRoute, out, levels)
+    if not ok then rec(out, "X", "polestar route: " .. tostring(err)) end
     ok, err = pcall(CollectTree, out, levels)
     if not ok then rec(out, "X", "map tree: " .. tostring(err)) end
     ok, err = pcall(CollectWaypoints, out, levels)
     if not ok then rec(out, "X", "waypoints: " .. tostring(err)) end
+    ok, err = pcall(CollectStatus, out)
+    if not ok then rec(out, "X", "status: " .. tostring(err)) end
+    ok, err = pcall(CollectServices, out, levels)
+    if not ok then rec(out, "X", "services: " .. tostring(err)) end
+    ok, err = pcall(ns.CollectFriends, out)
+    if not ok then rec(out, "X", "friends: " .. tostring(err)) end
     return concat(out, "\n")
 end
 
@@ -974,12 +1436,13 @@ end
 ---------------------------------------------------------------------------
 if not CreateFrame then return end
 
-local defaults = { enabled = true, pageInterval = 0.10, rebuildInterval = 1.0 }
+local defaults = { enabled = true, pageInterval = 0.10, rebuildInterval = 1.0, corner = "tl" }
 
 local strip, textures
 local chunks, pageIndex = nil, 1
 local snapshotId, lastPayload = 0, nil
 local dirty, sinceRebuild, sincePage = true, 99, 0
+function ns.MarkDirty() dirty = true end
 local pagesShown = 0   -- pages shown since the current snapshot started
 
 local function ApplyScale()
@@ -988,13 +1451,23 @@ local function ApplyScale()
     strip:SetScale(768 / physH) -- 1 UI unit == 1 physical pixel
 end
 
+-- Which corner of the game window the strip sits in (/edgelink corner tl|tr|bl|br): move it when
+-- something else draws over the top-left corner. The companion finds it in any corner on its own.
+local CORNERS = { tl = "TOPLEFT", tr = "TOPRIGHT", bl = "BOTTOMLEFT", br = "BOTTOMRIGHT" }
+function ns.PlaceStrip()
+    if not strip then return end
+    local point = CORNERS[EdgeLinkDB and EdgeLinkDB.corner or "tl"] or "TOPLEFT"
+    strip:ClearAllPoints()
+    strip:SetPoint(point, UIParent, point, 0, 0)
+end
+
 local function CreateStrip()
     strip = CreateFrame("Frame", "EdgeLinkStrip", UIParent)
     if strip.SetIgnoreParentScale then strip:SetIgnoreParentScale(true) end
     strip:SetFrameStrata("TOOLTIP")
     strip:SetFrameLevel(10000)
     strip:SetSize(P.BLOCKS * P.BLOCK_PX, P.BLOCK_PX)
-    strip:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
+    ns.PlaceStrip()
     strip:SetClampedToScreen(true)
     strip:EnableMouse(false)
     textures = {}
@@ -1020,6 +1493,8 @@ local function ShowPage()
         textures[i]:SetColorTexture(b[o + 1] / 255, b[o + 2] / 255, b[o + 3] / 255, 1)
     end
 end
+
+local QueueAreas -- defined below (quest-area sampling); declared here so Rebuild can call it
 
 local function Rebuild()
     local ok, payload = pcall(ns.BuildSnapshot)
@@ -1058,7 +1533,10 @@ local function EnsureAreaFrame()
     return areaFrame
 end
 
-local function QueueAreas()
+function QueueAreas()
+    -- Off unless asked for (/edgelink areas on): probing quest shapes is costly, and the client gives none
+    -- for most quests. (Until this function was reachable it never ran at all.)
+    if not EdgeLinkDB.questAreas then return end
     if not EnsureAreaFrame() then return end
     local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
     if not mapID or not ns.questIDs then return end
@@ -1080,9 +1558,11 @@ local function SampleNextArea()
     if #areaQueue == 0 then dirty = true end -- publish the new shapes
 end
 
+local sinceArea = 0
 local function OnUpdate(_, elapsed)
     if not EdgeLinkDB.enabled then return end
-    if #areaQueue > 0 and not InCombatLockdown() then SampleNextArea() end
+    sinceArea = sinceArea + elapsed
+    if #areaQueue > 0 and sinceArea >= 0.2 and not InCombatLockdown() then sinceArea = 0; SampleNextArea() end
     sinceRebuild = sinceRebuild + elapsed
     sincePage = sincePage + elapsed
     -- Let the companion see every page of the current snapshot once before replacing it; otherwise
@@ -1111,10 +1591,9 @@ local DIRTY_EVENTS = {
     "CHAT_MSG_SKILL",
 }
 -- Events after which quest areas must be sampled again
-local AREA_EVENTS = {
-    QUEST_POI_UPDATE = true, QUEST_ACCEPTED = true, QUEST_REMOVED = true, QUEST_TURNED_IN = true,
-    UNIT_QUEST_LOG_CHANGED = true, ZONE_CHANGED_NEW_AREA = true,
-}
+-- Quest shapes are cached per map and quest; only a quest entering or leaving the log forgets its shape.
+-- (QUEST_POI_UPDATE must not clear the cache: sampling a shape fires it, which restarted sampling forever.)
+local AREA_EVENTS = { QUEST_ACCEPTED = true, QUEST_REMOVED = true, QUEST_TURNED_IN = true }
 for e in pairs(AREA_EVENTS) do pcall(events.RegisterEvent, events, e) end
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("DISPLAY_SIZE_CHANGED")
@@ -1201,7 +1680,7 @@ gather:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
     end
 end)
 
-events:SetScript("OnEvent", function(_, event)
+events:SetScript("OnEvent", function(_, event, ...)
     if event == "PLAYER_LOGIN" then
         EdgeLinkDB = EdgeLinkDB or {}
         for k, v in pairs(defaults) do
@@ -1233,7 +1712,11 @@ events:SetScript("OnEvent", function(_, event)
     else
         if event == "PLAYER_REGEN_ENABLED" and not ns.inputReady then ns.BindInput() end
         if AREA_EVENTS[event] then
-            for k in pairs(ns.areaCache) do ns.areaCache[k] = nil end
+            local a1, a2 = ...
+            local qid = tonumber(event == "QUEST_ACCEPTED" and (a2 or a1) or a1)
+            if qid then
+                for _, c in pairs(ns.areaCache) do c[qid] = nil end
+            end
         end
         dirty = true
     end
@@ -1293,6 +1776,23 @@ do
         end
         dirty = true
     end)
+    -- Open game windows (live flag bits) and the header status (Hearthstone, mail, repairs)
+    local status = CreateFrame("Frame")
+    for e in pairs(ns.WINDOW_BITS) do pcall(status.RegisterEvent, status, e) end
+    for _, e in ipairs({ "BAG_UPDATE_COOLDOWN", "HEARTHSTONE_BOUND", "UPDATE_PENDING_MAIL", "PLAYER_ENTERING_WORLD", "MERCHANT_CLOSED" }) do
+        pcall(status.RegisterEvent, status, e)
+    end
+    status:SetScript("OnEvent", function(_, event)
+        if ns.WINDOW_BITS[event] then ns.WindowEvent(event) end
+        if event == "PLAYER_ENTERING_WORLD" then ns.openWindows = 0 end
+        if event == "BAG_UPDATE_COOLDOWN" or event == "HEARTHSTONE_BOUND" or event == "PLAYER_ENTERING_WORLD" then
+            local before = ns.hearthReadyAt
+            pcall(ns.UpdateHearth)
+            if ns.hearthReadyAt ~= before then dirty = true end
+        elseif event == "UPDATE_PENDING_MAIL" or event == "MERCHANT_CLOSED" or event == "MAIL_CLOSED" then
+            dirty = true
+        end
+    end)
     -- Frame rate and latency: sampled twice a minute so they don't force a new snapshot every second
     if C_Timer and C_Timer.NewTicker then
         C_Timer.NewTicker(30, function()
@@ -1302,6 +1802,42 @@ do
             local ms = 0
             if GetNetStats then local _, _, home, world = GetNetStats(); ms = world and world > 0 and world or home or 0 end
             if fps ~= s.fps or ms ~= s.ms then s.fps, s.ms = fps, ms; dirty = true end
+        end)
+    end
+end
+
+-- Friends and group on the Edge map. Friend-list events are noisy (Battle.net fires on every status
+-- change), so they mark the snapshot dirty at most every 5 s. Group members move all the time: a ticker
+-- compares their rounded spots every 3 s and rebuilds only when one has moved. Friend zones are refreshed
+-- by asking the server for the friends list once a minute, the same request the Friends panel makes.
+do
+    local friends = CreateFrame("Frame")
+    for _, e in ipairs({ "FRIENDLIST_UPDATE", "BN_FRIEND_INFO_CHANGED", "BN_FRIEND_ACCOUNT_ONLINE", "BN_FRIEND_ACCOUNT_OFFLINE",
+                         "GROUP_ROSTER_UPDATE", "UNIT_CONNECTION", "PARTY_MEMBER_ENABLE", "PARTY_MEMBER_DISABLE" }) do
+        pcall(friends.RegisterEvent, friends, e)
+    end
+    local pending = false
+    friends:SetScript("OnEvent", function()
+        if pending or not (EdgeLinkDB and EdgeLinkDB.friends ~= false) then return end
+        if not C_Timer then dirty = true; return end
+        pending = true
+        C_Timer.After(5, function() pending = false; dirty = true end)
+    end)
+    if C_Timer and C_Timer.NewTicker then
+        local lastSig
+        C_Timer.NewTicker(3, function()
+            if not (EdgeLinkDB and EdgeLinkDB.enabled and EdgeLinkDB.friends ~= false) or InCombatLockdown() then return end
+            if not (IsInGroup and IsInGroup()) then
+                if lastSig and lastSig ~= "" then lastSig = ""; dirty = true end
+                return
+            end
+            local ok, sig = pcall(ns.GroupSignature)
+            if ok and sig ~= lastSig then lastSig = sig; dirty = true end
+        end)
+        C_Timer.NewTicker(60, function()
+            if not (EdgeLinkDB and EdgeLinkDB.enabled and EdgeLinkDB.friends ~= false) or InCombatLockdown() then return end
+            if C_FriendList and C_FriendList.ShowFriends then pcall(C_FriendList.ShowFriends)
+            elseif ShowFriends then pcall(ShowFriends) end
         end)
     end
 end
@@ -1428,6 +1964,34 @@ do
     end
 end
 
+-- Polestar's route: republish when its target or its route lines change (its own message, plus a slow check
+-- for changes that send none, such as a guide step moving the target)
+do
+    local seen, hooked = nil, false
+    local function Signature()
+        local N = ns.PolestarNav()
+        if not N then return "" end
+        local okT, t = pcall(N.GetTarget)
+        local okG, g = pcall(function() return N.GetRouteGeometry and N.GetRouteGeometry() end)
+        return tostring(okT and t or "") .. "/" .. tostring(okT and type(t) == "table" and t.label or "") .. "/" .. tostring(okG and g or "")
+    end
+    local function Check()
+        local sig = Signature()
+        if sig ~= seen then seen = sig; dirty = true end
+    end
+    local function Hook()
+        if hooked then return end
+        local PS = _G.Polestar
+        if type(PS) == "table" and type(PS.On) == "function" then
+            hooked = true
+            pcall(PS.On, "NAV_ROUTE_GEOMETRY", function() dirty = true end)
+        end
+    end
+    if C_Timer and C_Timer.NewTicker then
+        C_Timer.NewTicker(1.5, function() Hook(); Check() end)
+    end
+end
+
 -- Taps on the Edge widget arrive as short key bursts sent by the companion (only when the user enables it):
 --   CTRL-SHIFT-F11, then digits as CTRL-SHIFT-F1..F10 (= 0..9), then CTRL-SHIFT-F12.
 -- First digit is the action; the rest are its argument. One tap = one interface action (never movement or combat).
@@ -1435,7 +1999,8 @@ end
 --   2<questID>                open the quest log at that quest
 --   3<mapID:5><x:3><y:3>      set the in-game map waypoint (x, y in thousandths)
 --   4                         clear the in-game waypoint
---   7<mapID:5><x:4><y:4>      ask Polestar (if installed) for a walking path to that spot; 70 clears it
+--   7<mapID:5><x:4><y:4>      point Polestar (if installed) at that spot; 70 lets go again
+--   8<1|0>                    trainer/service pins from Polestar's NPC database on/off
 --   5<n>                      toggle a window: 1 bags, 2 world map, 3 character, 4 sort bags, 5 quest log
 local inputBuf, inputAt
 local inputOwner = CreateFrame("Frame")
@@ -1479,11 +2044,31 @@ function ns.RunCommand(digits)
     elseif action == "4" then
         if C_Map and C_Map.ClearUserWaypoint then pcall(C_Map.ClearUserWaypoint) end
         return true
+    elseif action == "8" then
+        -- trainer/service pins: 81 turns them on (loads Polestar's NPC database), 80 off
+        EdgeLinkDB.services = arg == "1"
+        if EdgeLinkDB.services then
+            if not ns.ServicesAvailable() then say("trainer and service pins need the Polestar addon."); return false end
+            say("reading trainer and service locations from Polestar (a moment).")
+        end
+        if ns.MarkDirty then ns.MarkDirty() end
+        return true
     elseif action == "7" then
         -- Route target for Polestar's walking router: 7<mapID:5><x:4><y:4> (ten-thousandths), or 70 to clear
-        if arg == "0" then return ns.NavSet(nil) end
+        local N = ns.PolestarNav()
+        local API = N and type(N.API) == "table" and N.API
+        if arg == "0" then
+            if API and API.Cancel then pcall(API.Cancel, "EdgeLink") end
+            return ns.NavSet(nil)
+        end
         if #arg ~= 13 then return false end
-        return ns.NavSet(tonumber(arg:sub(1, 5)), tonumber(arg:sub(6, 9)) / 10000, tonumber(arg:sub(10, 13)) / 10000)
+        local mapID, x, y = tonumber(arg:sub(1, 5)), tonumber(arg:sub(6, 9)) / 10000, tonumber(arg:sub(10, 13)) / 10000
+        if API and API.Navigate then
+            -- Polestar's own arrow and route planner take it (walks, flights, boats); its route comes back in "D"
+            local ok, done = pcall(API.Navigate, "EdgeLink", mapID, x, y, "Edge route")
+            if ok and done then ns.NavSet(nil); dirty = true; say("Polestar is guiding you to the spot picked on the Edge."); return true end
+        end
+        return ns.NavSet(mapID, x, y)
     elseif action == "6" then
         -- Open one of your profession windows so its recipes can be read. Not in combat.
         if InCombatLockdown() then say("profession windows can't be opened from the Edge during combat."); return false end
@@ -1547,6 +2132,17 @@ SlashCmdList.EDGELINK = function(msg)
         EdgeLinkDB.enabled = (cmd == "on")
         strip:SetShown(EdgeLinkDB.enabled)
         dirty = true
+    elseif cmd == "services" then
+        if arg == "on" or arg == "off" then ns.RunCommand(arg == "on" and "81" or "80")
+        else print("|cff7fd4ffEdgeLink|r /edgelink services on|off  (now: " .. (EdgeLinkDB.services and "on" or "off") .. ")") end
+    elseif cmd == "corner" then
+        if CORNERS[arg] then
+            EdgeLinkDB.corner = arg
+            ns.PlaceStrip()
+            print("|cff7fd4ffEdgeLink|r strip moved to the " .. ({ tl = "top-left", tr = "top-right", bl = "bottom-left", br = "bottom-right" })[arg] .. " corner. The companion finds it on its own within a second or two.")
+        else
+            print("|cff7fd4ffEdgeLink|r /edgelink corner tl|tr|bl|br  (now: " .. (EdgeLinkDB.corner or "tl") .. ")")
+        end
     elseif cmd == "rate" and tonumber(arg) then
         EdgeLinkDB.pageInterval = math.max(0.03, tonumber(arg))
     elseif cmd == "refresh" then
@@ -1584,6 +2180,20 @@ SlashCmdList.EDGELINK = function(msg)
         print(string.format("|cff7fd4ffEdgeLink|r nodes here: %d herb, %d ore, %d fishing, %d treasure (%d on all maps). '/edgelink nodes clear' forgets this map.",
             counts.H, counts.M, counts.F, counts.T, total))
         return
+    elseif cmd == "friends" then
+        if arg == "on" or arg == "off" then
+            EdgeLinkDB.friends = arg == "on"
+            dirty = true
+        end
+        print("|cff7fd4ffEdgeLink|r friends and group on the Edge map: " .. (EdgeLinkDB.friends == false and "off" or "on") ..
+            ". /edgelink friends on|off")
+        return
+    elseif cmd == "areas" and (arg == "on" or arg == "off") then
+        EdgeLinkDB.questAreas = arg == "on"
+        if not EdgeLinkDB.questAreas then for i = #areaQueue, 1, -1 do areaQueue[i] = nil end end
+        print("|cff7fd4ffEdgeLink|r quest objective areas " .. (EdgeLinkDB.questAreas and "on" or "off") .. ".")
+        dirty = true
+        return
     elseif cmd == "areas" then
         local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
         local c, total, shaped = mapID and ns.areaCache[mapID] or {}, 0, 0
@@ -1594,7 +2204,7 @@ SlashCmdList.EDGELINK = function(msg)
         return
     end
     local _, physH = GetPhysicalScreenSize()
-    print(string.format("|cff7fd4ffEdgeLink|r %s - snapshot %d, %d page(s), %d bytes, page every %.2fs, screen height %d px. Commands: /edgelink on|off|refresh|areas|nodes|casts|recipes|rate <sec>",
+    print(string.format("|cff7fd4ffEdgeLink|r %s - snapshot %d, %d page(s), %d bytes, page every %.2fs, screen height %d px. Commands: /edgelink on|off|refresh|corner <tl|tr|bl|br>|services on|off|friends on|off|areas [on|off]|nodes|casts|recipes|rate <sec>",
         EdgeLinkDB.enabled and "ON" or "OFF", snapshotId, chunks and #chunks or 0,
         lastPayload and #lastPayload or 0, EdgeLinkDB.pageInterval, physH or 0))
 end
