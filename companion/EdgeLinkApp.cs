@@ -90,7 +90,9 @@ namespace EdgeLink
         public int Port = 8787;
         public string[] ProcessNames = new string[] { "Wow" };
         public bool Icons = true;
+        public bool CheckUpdates = true;
         public int IntervalMs = 33;
+        public string UpdateFeed, UpdateToken;   // testing / private repo only; normally empty
 
         public static Settings Load()
         {
@@ -108,7 +110,10 @@ namespace EdgeLink
                 if (k == "port" && int.TryParse(v, out n) && n > 0 && n < 65536) s.Port = n;
                 else if (k == "processnames" && v.Length > 0) s.ProcessNames = v.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).ToArray();
                 else if (k == "icons") s.Icons = !(v.Equals("false", StringComparison.OrdinalIgnoreCase) || v == "0");
+                else if (k == "checkupdates") s.CheckUpdates = !(v.Equals("false", StringComparison.OrdinalIgnoreCase) || v == "0");
                 else if (k == "intervalms" && int.TryParse(v, out n) && n >= 10 && n <= 1000) s.IntervalMs = n;
+                else if (k == "updatefeed" && v.Length > 0) s.UpdateFeed = v;
+                else if (k == "updatetoken" && v.Length > 0) s.UpdateToken = v;
             }
             return s;
         }
@@ -120,8 +125,13 @@ namespace EdgeLink
         readonly Settings settings;
         readonly Bridge bridge;
         readonly NotifyIcon tray;
-        readonly ToolStripMenuItem statusItem, startupItem, inputItem;
+        readonly ToolStripMenuItem statusItem, startupItem, inputItem, updateItem;
+        readonly ToolStripSeparator updateSep;
         readonly System.Windows.Forms.Timer timer;
+        System.Threading.Timer updateTimer;
+        SynchronizationContext ui;
+        readonly Updater updater;
+        Updater.Release updateRelease;
 
         public TrayContext()
         {
@@ -130,6 +140,7 @@ namespace EdgeLink
             App.Log("Starting EdgeLink " + Application.ProductVersion + " from " + App.ExeDir + " on port " + settings.Port);
 
             bridge = new Bridge();
+            bridge.AppVersion = Application.ProductVersion;
             bridge.Port = settings.Port;
             bridge.ProcessNames = settings.ProcessNames;
             bridge.IntervalMs = settings.IntervalMs;
@@ -143,6 +154,18 @@ namespace EdgeLink
             bridge.Chars = new CharStore(Path.Combine(App.DataDir, "chars"));
             bridge.Certificate = FindCertificate();
             bridge.AllowInput = ReadAllowInput();
+            updater = new Updater
+            {
+                Current = new Version(Application.ProductVersion), ExeDir = App.ExeDir, DataDir = App.DataDir,
+                Feed = settings.UpdateFeed ?? Updater.DefaultFeed, Token = settings.UpdateToken, Log = App.Log
+            };
+            bridge.UpdateJson = updater.StateJson;
+            bridge.UpdateAction = delegate (string action, string version)
+            {
+                if (action == "install") return updater.StartInstall(version);
+                ThreadPool.QueueUserWorkItem(delegate { updater.Check(); });
+                return "{\"ok\":true,\"status\":\"checking\"}";
+            };
             try { bridge.Start(); }
             catch (System.Net.Sockets.SocketException ex)
             {
@@ -156,7 +179,14 @@ namespace EdgeLink
             inputItem.ToolTipText = "Taps on the Edge can track quests and set map waypoints in WoW (one tap = one action).";
             startupItem.Checked = IsStartupEnabled();
 
+            updateItem = new ToolStripMenuItem("Update available") { Visible = false };
+            updateItem.Font = new Font(updateItem.Font, FontStyle.Bold);
+            updateItem.Click += delegate { OfferUpdate(); };
+            updateSep = new ToolStripSeparator { Visible = false };
+
             ContextMenuStrip menu = new ContextMenuStrip();
+            menu.Items.Add(updateItem);
+            menu.Items.Add(updateSep);
             menu.Items.Add(statusItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(new ToolStripMenuItem("Open widget in browser", null, delegate { OpenUrl("http://localhost:" + settings.Port + "/"); }));
@@ -179,6 +209,23 @@ namespace EdgeLink
             timer.Start();
             UpdateStatus();
 
+            // Update check: GitHub's latest release, a minute after start and then twice a day (CheckUpdates=false turns it off)
+            ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            updater.OnAvailable = delegate (Updater.Release r)
+            {
+                ui.Post(delegate
+                {
+                    updateRelease = r;
+                    updateItem.Text = "Update available: " + r.Tag;
+                    updateItem.Visible = updateSep.Visible = true;
+                    tray.ShowBalloonTip(8000, "EdgeLink " + r.Tag + " is available",
+                        "See what's new and upgrade from the version tag on the Edge, or right-click this icon.", ToolTipIcon.Info);
+                }, null);
+            };
+            updater.BeforeInstall = delegate { ui.Post(delegate { ExitThread(); }, null); };
+            if (settings.CheckUpdates)
+                updateTimer = new System.Threading.Timer(delegate { updater.Check(); }, null, TimeSpan.FromSeconds(20), TimeSpan.FromHours(6));
+
             string firstRun = Path.Combine(App.DataDir, "firstrun.done");
             if (!File.Exists(firstRun))
             {
@@ -186,6 +233,27 @@ namespace EdgeLink
                     "It lives here in the system tray. Right-click for options, such as installing the WoW addon and the iCUE widget.", ToolTipIcon.Info);
                 try { File.WriteAllText(firstRun, DateTime.Now.ToString("o")); } catch { }
             }
+        }
+
+        // Kept for the existing test: "v1.7.0" newer than the running 1.6.0.0?
+        internal static bool IsNewer(string tag, Version current) { return Updater.IsNewer(tag, current); }
+
+        // Tray menu: show what's new, then install (or open the download page for a copy not installed by setup)
+        void OfferUpdate()
+        {
+            Updater.Release r = updateRelease;
+            if (r == null) { OpenUrl(Updater.ReleasesPage); return; }
+            string notes = (r.Body ?? "").Trim();
+            if (notes.Length > 1500) notes = notes.Substring(0, 1500) + "...";
+            if (!updater.CanInstall())
+            {
+                if (MessageBox.Show("EdgeLink " + r.Tag + " is available.\n\n" + notes + "\n\nOpen the download page?", "EdgeLink update",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes) OpenUrl(r.HtmlUrl);
+                return;
+            }
+            if (MessageBox.Show("EdgeLink " + r.Tag + " is available.\n\n" + notes + "\n\nDownload and install it now? EdgeLink restarts by itself; /reload in WoW afterwards.",
+                "EdgeLink update", MessageBoxButtons.YesNo, MessageBoxIcon.Information) != DialogResult.Yes) return;
+            App.Log("Update from tray: " + updater.StartInstall(r.Version));
         }
 
         static X509Certificate2 FindCertificate()
@@ -359,6 +427,7 @@ namespace EdgeLink
         {
             App.Log("Exiting");
             timer.Stop();
+            if (updateTimer != null) updateTimer.Dispose();
             tray.Visible = false;
             tray.Dispose();
             bridge.Stop();

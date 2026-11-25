@@ -53,7 +53,7 @@ Even so, a program that reads the game window and can send keys is a grey area u
 - Corsair iCUE 5.47 or newer and a Xeneon Edge
 - The game window must be visible on a monitor (the strip has to be on screen)
 
-Optional addons: **Auctionator** (auction values for your bags), **TomTom** (its waypoints appear on the Edge map) and **Polestar** (real walking paths for routes; experimental).
+Optional addons: **Auctionator** or **Auctioneer** (auction values for your bags), **TomTom** (its waypoints appear on the Edge map) and **Polestar** (its routes appear on the Edge map; experimental).
 
 ## Install
 
@@ -64,7 +64,7 @@ Optional addons: **Auctionator** (auction values for your bags), **TomTom** (its
 
 Prefer not to run an installer? Each release also has a zip: unzip it anywhere, run `EdgeLink.exe`, and use the tray menu (**Install / update WoW addon**, **Install widget in iCUE**).
 
-Releases are not code-signed yet, so Windows SmartScreen or your antivirus may warn about or quarantine the setup program or `EdgeLink.exe`. See the [Code signing policy](CODE_SIGNING_POLICY.md). You can also build it yourself (below).
+Code signing with Azure Artifact Signing is being set up; until the first signed release, Windows SmartScreen or your antivirus may warn about or quarantine the setup program or `EdgeLink.exe`. See the [Code signing policy](CODE_SIGNING_POLICY.md). You can also build it yourself (below).
 
 ## What you get
 
@@ -72,27 +72,38 @@ Releases are not code-signed yet, so Windows SmartScreen or your antivirus may w
 |---|---|
 | Bags | Every bag on one screen, vendor and auction value, junk total, and an all-characters view of bags and bank |
 | Character Info | Equipped items with durability, your stats, and reputations |
-| Quests | Quest log by zone, with Track and Route buttons |
-| Map | Zone map with your live position, a browsable world map (tap a region to open it), flight points, points of interest, learned herb and ore nodes, rare alerts, coordinates entry, and routes |
-| Professions | Skill levels, recipes with how many you can make from your bags and bank, and materials |
+| Quests | Quest log by zone with Track and Route buttons; quests ready to hand in are grouped at the top, with **Route to nearest turn-in** |
+| Map | Zone map with your live position, a browsable world map (tap a region to open it), flight points, points of interest, learned herb and ore nodes (with a **Loop** that plans a round trip through every node in the zone), rare alerts, coordinates entry, routes, and your **friends**: group members as class-coloured dots you can route to, online friends and Battle.net friends counted on the zone they are in |
+| Professions | Skill levels, recipes with how many you can make from your bags and bank, a **shopping list** of what you are still missing, and materials |
 | Session | XP and gold per hour, time to level, gathering counts, FPS, latency, durability |
+
+The header shows your Hearthstone (where it is set and its cooldown), rested XP, new mail and an estimate of your repair bill. With **Auto tabs** on, the panel switches to Bags when a vendor or the bank opens, to Professions when a profession window opens, and to the Map on a flight, then back again.
 
 Routes show a line from you to the target with distance and turn direction. "Suggested path" follows trails you have walked before and proposes flight legs for long trips.
 
-**Polestar (optional, experimental):** if the [Polestar](https://www.curseforge.com/wow/addons/polestar) addon is installed and "Let widget taps control WoW" is on, EdgeLink asks Polestar's walking router for the path and draws that instead. EdgeLink only calls the installed addon at run time; it contains none of Polestar's code or maps.
+**Polestar (optional, experimental):** if the [Polestar](https://www.curseforge.com/wow/addons/polestar) addon is installed, whatever Polestar is guiding you to (a guide step, or a spot you picked on its map) appears on the Edge map with Polestar's own route: walking paths, flights and other legs, the distance left and which way to turn. With "Let widget taps control WoW" on, **Route here** on the Edge hands the spot to Polestar, so its arrow in game and the line on the Edge follow the same route; clearing the route on the Edge gives Polestar's arrow back to its guide. EdgeLink only calls the installed addon at run time; it contains none of Polestar's code or maps.
+
+**Updates:** EdgeLink checks GitHub for new releases every few hours. When one is out, the version tag at the top right of the panel turns gold and a window shows what changed in every version since yours (from [CHANGELOG.md](CHANGELOG.md)). Choose **Upgrade now** and EdgeLink downloads the setup program from the GitHub release, checks it against the SHA-256 checksum GitHub publishes (and, once releases are signed, that it is signed by the same publisher), installs it silently and restarts; the panel reloads itself. Type `/reload` in WoW afterwards for the new addon. **Later** asks again next time; **Skip** hides that version. The tray menu offers the same. A copy that was not installed by the setup program shows a download link instead. The panel also updates itself: when the installed EdgeLink carries a newer widget than the one imported into iCUE, the panel loads the newer one.
+
+**Friends:** party and raid members appear on the zone and continent maps at their real position (the game shares it with your group; not inside dungeons). Tap one for **Route here**. Friends and Battle.net friends who are not in your group appear as a number on the zone they are in, because the game only tells anyone which zone a friend is in, not where. The badge in the corner of the zone map lists everyone online. Battle.net friends show their character and the first part of their BattleTag, never a real name. `/edgelink friends off` turns it off.
+
+**Trainers and services (needs Polestar):** the Map tab can show class trainers for your class, profession trainers, and services (repairs, vendors, bankers, auctioneers, stable masters, weapon masters) in your zone, read from Polestar's own NPC database at run time. Each profession on the Professions tab gets a **Trainer** button, and the shopping list offers **Buy from** the nearest vendor that sells a missing reagent. Polestar loads that database only when needed, so EdgeLink loads it only after you turn one of these on (or type `/edgelink services on`).
 
 Some data can only be read while a game window is open: open your **bank** once and each **profession window** once, and EdgeLink remembers them.
 
 ## Slash commands
 
-`/edgelink on|off|refresh|areas|nodes [clear]|casts|recipes|rate <seconds>|cmd <digits>`
+`/edgelink on|off|refresh|corner <tl|tr|bl|br>|services on|off|friends on|off|areas|nodes [clear]|casts|recipes|rate <seconds>|cmd <digits>`
+
+`/edgelink corner` moves the pixel strip to another corner of the game window, for when something else is drawn over the top-left. The companion finds it in any corner by itself.
 
 ## Privacy
 
-Everything stays on your PC, with two exceptions, both optional (set `Icons=false` in `EdgeLink.ini` to turn them off):
+Everything stays on your PC, with three exceptions, all optional:
 
-- **Item icons:** item ID numbers are sent to Wowhead to look up icon images.
-- **Map art:** zone names are sent to Wowhead to look up map images.
+- **Item icons:** item ID numbers are sent to Wowhead to look up icon images (`Icons=false` in `EdgeLink.ini` turns this off).
+- **Map art:** zone names are sent to Wowhead to look up map images (same setting).
+- **Update check:** every few hours the tray app asks GitHub for EdgeLink's releases; the request carries only EdgeLink's version number (`CheckUpdates=false` turns this off). Updates are downloaded only when you choose **Upgrade now**.
 
 No account names, character names or other personal data are sent anywhere. The companion only listens on `localhost`.
 
@@ -145,7 +156,7 @@ python tests/input_test.py
 
 ## Troubleshooting
 
-- **Widget says "WoW not running" or "Waiting for addon":** the game window must be on screen and not minimised, with the addon enabled. Loading screens and a hidden interface (Alt+Z) pause the data. A performance overlay drawn over the top-left corner of the game (for example a GPU vendor's FPS bar) covers the pixel strip and has the same effect: move it or turn it off.
+- **Widget says "WoW not running" or "Waiting for addon":** the game window must be on screen and not minimised, with the addon enabled. Loading screens and a hidden interface (Alt+Z) pause the data. A performance overlay drawn over the top-left corner of the game (for example a GPU vendor's FPS bar) covers the pixel strip and has the same effect: move the overlay, or move the strip with `/edgelink corner tr` (or `bl`, `br`).
 - **A tap does nothing in WoW:** check the tray option is ticked, and that the chat box is not open; key presses are ignored while you are typing.
 - **No herbs or ore on the map:** nodes are learned as you gather. `/edgelink casts` shows what the addon saw.
 - **No recipes or bank items:** open the profession window or the bank once.

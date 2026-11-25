@@ -287,6 +287,68 @@ def main():
     bc = ns.SplitPayload(big)
     assert b"".join(bc[i] for i in range(1, len(bc) + 1)) == big
     print(f"multi-page ok: {len(big)} bytes in {len(bc)} pages")
+    # Friends and group (F records)
+    assert not any(l.startswith("F\t") for l in text.split("\n")), "no friends API in the base stubs -> no F records"
+    lua.execute(b"""
+        local realGBM, realGPMP = C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition
+        local spots = { party1 = { 1429, 0.5, 0.25 }, party2 = { 1426, 0.1, 0.9 } }   -- party3 in a dungeon: no spot
+        C_Map.GetBestMapForUnit = function(unit)
+            if unit == "player" then return realGBM(unit) end
+            return spots[unit] and spots[unit][1] or nil
+        end
+        C_Map.GetPlayerMapPosition = function(mapID, unit)
+            if unit == "player" then return realGPMP(mapID, unit) end
+            local s = spots[unit]
+            if not s or s[1] ~= mapID then return nil end
+            return { GetXY = function() return s[2], s[3] end }
+        end
+        IsInRaid = function() return false end
+        IsInGroup = function() return true end
+        local members = { party1 = { "Brax", nil, "WARRIOR", 30 }, party2 = { "Lyra", "Otherrealm", "MAGE", 31 },
+                          party3 = { "Tank", nil, "PALADIN", 29 } }
+        UnitExists = function(u) return members[u] ~= nil end
+        UnitIsUnit = function() return false end
+        UnitIsConnected = function(u) return u ~= "party3" end
+        local realUnitName, realUnitClass, realUnitLevel = UnitName, UnitClass, UnitLevel
+        UnitName = function(u) local m = members[u]; if m then return m[1], m[2] end; return realUnitName(u) end
+        UnitClass = function(u) local m = members[u]; if m then return m[3], m[3] end; return realUnitClass(u) end
+        UnitLevel = function(u) local m = members[u]; if m then return m[4] end; return realUnitLevel(u) end
+        LOCALIZED_CLASS_NAMES_MALE = { DRUID = "Druid", HUNTER = "Hunter" }
+        C_FriendList = { GetNumFriends = function() return 3 end, GetFriendInfoByIndex = function(i)
+            return ({ { name = "zed", connected = true, className = "Druid", level = 40, area = "Westfall", afk = true },
+                      { name = "Offline", connected = false },
+                      { name = "Brax", connected = true, className = "Warrior", level = 30, area = "Elwynn Forest" } })[i] end }
+        BNET_CLIENT_WOW = "WoW"; WOW_PROJECT_ID = 5
+        BNGetNumFriends = function() return 3 end
+        C_BattleNet = { GetFriendAccountInfo = function(i)
+            return ({ { battleTag = "Pal#1234", accountName = "Real Name", gameAccountInfo = { isOnline = true, clientProgram = "WoW",
+                          characterName = "Arwen", realmName = "", areaName = "Duskwood", className = "Hunter", characterLevel = 25, wowProjectID = 5 } },
+                      { battleTag = "Other#9", gameAccountInfo = { isOnline = true, clientProgram = "WoW", characterName = "Retailguy",
+                          realmName = "Area 52", areaName = "Dornogal", className = "Evoker", characterLevel = 80, wowProjectID = 1 } },
+                      { battleTag = "App#1", gameAccountInfo = { isOnline = true, clientProgram = "App" } } })[i] end }
+    """)
+    tf = ns.BuildSnapshot().decode()
+    fl = [l.split("\t") for l in tf.split("\n") if l.startswith("F\t")]
+    assert all(len(r) == 11 for r in fl), fl
+    names = [(r[1], r[2]) for r in fl]
+    assert names == [("G", "Brax"), ("G", "Lyra-Otherrealm"), ("G", "Tank"), ("B", "Arwen"), ("B", "Retailguy-Area 52"), ("R", "zed")], names
+    brax, lyra, tank, arwen, retail, zed = fl
+    assert brax[3:8] == ["WARRIOR", "30", "1429", "0.500", "0.250"], brax
+    assert lyra[5:8] == ["1426", "0.100", "0.900"], lyra          # their own zone, not ours
+    assert tank[5:8] == ["", "", ""] and tank[9] == "o", tank         # offline: no spot
+    assert arwen[3] == "HUNTER" and arwen[8] == "Duskwood" and arwen[10] == "Pal", arwen
+    assert "Real Name" not in tf, "Real ID account names must never be read"
+    assert retail[9] == "x", retail                                  # other WoW version
+    assert zed[3] == "DRUID" and zed[8] == "Westfall" and zed[9] == "a", zed
+    assert not any(r[2] == "Offline" for r in fl)
+    assert "G" in [l for l in tf.split("\n") if l.startswith("Z\t")][0].split("\t")[1].split(",")
+    assert ns.BuildSnapshot().decode() == tf, "friends must not break determinism"
+    sig1 = ns.GroupSignature()
+    lua.execute(b"EdgeLinkDB = EdgeLinkDB or {}; EdgeLinkDB.friends = false")
+    assert not any(l.startswith("F\t") for l in ns.BuildSnapshot().decode().split("\n")), "/edgelink friends off"
+    lua.execute(b"EdgeLinkDB.friends = nil")
+    assert sig1 and b"1429" in sig1, sig1
+    print("friends ok:", [(r[1], r[2], r[6], r[8]) for r in fl])
     with open(os.path.join(OUT, "snapshot.txt"), "wb") as f:
         f.write(snap)
     print("ALL OK")

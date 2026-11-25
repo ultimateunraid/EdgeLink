@@ -180,6 +180,18 @@ namespace EdgeLink
     // Converts the addon's tab-separated snapshot into JSON for the widget.
     public static class SnapshotParser
     {
+        // "12,34" -> "12,34" as JSON numbers (empty parts dropped)
+        static string NumList(string csv)
+        {
+            StringBuilder sb = new StringBuilder();
+            foreach (string v in csv.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (sb.Length > 0) sb.Append(',');
+                sb.Append(Json.Num(v));
+            }
+            return sb.ToString();
+        }
+
         static string F(string[] f, int i) { return i < f.Length ? f[i] : ""; }
 
         public static string ToJson(string text)
@@ -195,11 +207,14 @@ namespace EdgeLink
             List<string> nodes = new List<string>();
             List<string> stats = new List<string>();
             List<string> nearby = new List<string>();
+            List<string> friends = new List<string>();
+            string addonVersion = "";
             List<string> reps = new List<string>();
             List<string> bank = new List<string>();
             List<string> recipes = new List<string>();
             List<string> tree = new List<string>();
-            string session = "null", charName = null, charRealm = "", navJson = "null";
+            string session = "null", charName = null, charRealm = "", navJson = "null", polestarJson = "null", statusJson = "null";
+            List<string> services = null;
             string caps = null;
             string error = null;
             StringBuilder bagItems = null; string bagHead = null;
@@ -329,6 +344,16 @@ namespace EdgeLink
                         nearby.Add("{\"name\":" + Json.Esc(F(f, 1)) + ",\"map\":" + Json.Num(F(f, 2)) + ",\"x\":" + Json.Num(F(f, 3)) +
                                    ",\"y\":" + Json.Num(F(f, 4)) + ",\"atlas\":" + Json.Esc(F(f, 5)) + ",\"id\":" + Json.Num(F(f, 6)) + "}");
                         break;
+                    case "H":
+                        addonVersion = F(f, 2);
+                        break;
+                    case "F":
+                        // F  kind  name  class  level  mapID  x  y  area  flags  tag  (friends and group)
+                        friends.Add("{\"kind\":" + Json.Esc(F(f, 1)) + ",\"name\":" + Json.Esc(F(f, 2)) + ",\"cls\":" + Json.Esc(F(f, 3)) +
+                                    ",\"level\":" + Json.Num(F(f, 4)) + ",\"map\":" + Json.Num(F(f, 5)) + ",\"x\":" + Json.Num(F(f, 6)) +
+                                    ",\"y\":" + Json.Num(F(f, 7)) + ",\"area\":" + Json.Esc(F(f, 8)) + ",\"flags\":" + Json.Esc(F(f, 9)) +
+                                    ",\"tag\":" + Json.Esc(F(f, 10)) + "}");
+                        break;
                     case "U":
                         reps.Add("{\"name\":" + Json.Esc(F(f, 1)) + ",\"reaction\":" + Json.Num(F(f, 2)) + ",\"min\":" + Json.Num(F(f, 3)) +
                                  ",\"max\":" + Json.Num(F(f, 4)) + ",\"value\":" + Json.Num(F(f, 5)) + "}");
@@ -356,6 +381,47 @@ namespace EdgeLink
                         }
                         navJson = "{\"status\":" + Json.Esc(F(f, 1)) + ",\"yards\":" + Json.Num(F(f, 2)) + ",\"map\":" + Json.Num(F(f, 3)) +
                                   ",\"x\":" + Json.Num(F(f, 4)) + ",\"y\":" + Json.Num(F(f, 5)) + ",\"pts\":[" + np + "]}";
+                        break;
+                    case "A":
+                        // trainers and services (from Polestar's NPC database): "-" marks the list as read
+                        if (services == null) services = new List<string>();
+                        if (F(f, 1) == "-") break;
+                        services.Add("{\"cat\":" + Json.Esc(F(f, 1)) + ",\"x\":" + Json.Num(F(f, 2)) + ",\"y\":" + Json.Num(F(f, 3)) +
+                                     ",\"name\":" + Json.Esc(F(f, 4)) + ",\"title\":" + Json.Esc(F(f, 5)) +
+                                     ",\"items\":[" + NumList(F(f, 6)) + "]}");
+                        break;
+                    case "I":
+                        // header status: hearth location, hearth ready-at (epoch, 0 = ready, "" = none), new mail, repair cost
+                        statusJson = "{\"home\":" + Json.Esc(F(f, 1)) +
+                                     ",\"hearthReadyAt\":" + (F(f, 2).Length > 0 ? Json.Num(F(f, 2)) : "null") +
+                                     ",\"mail\":" + (F(f, 3) == "1" ? "true" : "false") +
+                                     ",\"repair\":" + (F(f, 4).Length > 0 ? Json.Num(F(f, 4)) : "null") + "}";
+                        break;
+                    case "D":
+                        // Polestar's active route: label, target (zone coords), legs "kind,cur,straight:x,y;x,y|..."
+                        StringBuilder legsJ = new StringBuilder();
+                        foreach (string leg in F(f, 4).Split('|'))
+                        {
+                            int colon = leg.IndexOf(':');
+                            if (colon < 0) continue;
+                            string[] head = leg.Substring(0, colon).Split(',');
+                            if (head.Length < 3) continue;
+                            StringBuilder lp = new StringBuilder();
+                            foreach (string pt in leg.Substring(colon + 1).Split(';'))
+                            {
+                                string[] xy = pt.Split(',');
+                                if (xy.Length != 2) continue;
+                                if (lp.Length > 0) lp.Append(',');
+                                lp.Append('[').Append(Json.Num(xy[0])).Append(',').Append(Json.Num(xy[1])).Append(']');
+                            }
+                            if (legsJ.Length > 0) legsJ.Append(',');
+                            legsJ.Append("{\"kind\":").Append(Json.Esc(head[0])).Append(",\"current\":").Append(head[1] == "1" ? "true" : "false")
+                                 .Append(",\"straight\":").Append(head[2] == "1" ? "true" : "false").Append(",\"pts\":[").Append(lp).Append("]}");
+                        }
+                        string ptx = F(f, 2), pty = F(f, 3);
+                        polestarJson = "{\"label\":" + Json.Esc(F(f, 1)) +
+                                       ",\"x\":" + (ptx.Length > 0 ? Json.Num(ptx) : "null") + ",\"y\":" + (pty.Length > 0 ? Json.Num(pty) : "null") +
+                                       ",\"legs\":[" + legsJ + "]}";
                         break;
                     case "J":
                         StringBuilder rg = new StringBuilder();
@@ -392,13 +458,15 @@ namespace EdgeLink
                    "],\"stats\":[" + string.Join(",", stats.ToArray()) +
                    "],\"skills\":[" + string.Join(",", skills.ToArray()) +
                    "],\"nodes\":[" + string.Join(",", nodes.ToArray()) +
-                   "],\"nav\":" + navJson + ",\"session\":" + session +
+                   "],\"nav\":" + navJson + ",\"polestar\":" + polestarJson + ",\"status\":" + statusJson + ",\"services\":" + (services == null ? "null" : "[" + string.Join(",", services.ToArray()) + "]") + ",\"session\":" + session +
                    ",\"nearby\":[" + string.Join(",", nearby.ToArray()) +
+                   "],\"friends\":[" + string.Join(",", friends.ToArray()) +
                    "],\"reps\":[" + string.Join(",", reps.ToArray()) +
                    "],\"bank\":[" + string.Join(",", bank.ToArray()) +
                    "],\"recipes\":[" + string.Join(",", recipes.ToArray()) +
                    "],\"tree\":[" + string.Join(",", tree.ToArray()) +
-                   "],\"addonError\":" + Json.Esc(error) + "}";
+                   "],\"addonVersion\":" + Json.Esc(addonVersion) +
+                   ",\"addonError\":" + Json.Esc(error) + "}";
         }
 
         // The character part of the last parsed snapshot (bags + bank), for the all-characters inventory.
@@ -717,6 +785,11 @@ namespace EdgeLink
 
     public class Bridge
     {
+        // Version of the program hosting the bridge (EdgeLink.exe sets it; empty for the PowerShell fallback)
+        public string AppVersion = "";
+        // Updates (EdgeLink.exe only): GET /update -> state JSON; /update/check and /update/install need the command header
+        public Func<string> UpdateJson;
+        public Func<string, string, string> UpdateAction;   // (action, version) -> JSON
         public string[] ProcessNames = new string[] { "Wow" };
         public int Port = 8787;
         public int IntervalMs = 33;
@@ -849,6 +922,8 @@ namespace EdgeLink
         volatile string posJson = "null";
         long lastPosTicks;
 
+        static string B(int v) { return v != 0 ? "true" : "false"; }
+
         public void Feed(Page p)
         {
             Interlocked.Increment(ref pagesOk);
@@ -860,7 +935,9 @@ namespace EdgeLink
                           ",\"facing\":" + (p.Facing == 255 ? "null" : (p.Facing / 255.0 * 2 * Math.PI).ToString("0.###", CultureInfo.InvariantCulture)) +
                           ",\"valid\":" + ((p.Flags & 1) != 0 ? "true" : "false") +
                           ",\"combat\":" + ((p.Flags & 2) != 0 ? "true" : "false") +
-                          ",\"taxi\":" + ((p.Flags & 4) != 0 ? "true" : "false") + "}";
+                          ",\"taxi\":" + ((p.Flags & 4) != 0 ? "true" : "false") +
+                          ",\"windows\":{\"vendor\":" + B(p.Flags & 8) + ",\"bank\":" + B(p.Flags & 16) + ",\"profession\":" + B(p.Flags & 32) +
+                          ",\"mail\":" + B(p.Flags & 64) + ",\"flightMap\":" + B(p.Flags & 128) + "}}";
                 lastPosTicks = DateTime.UtcNow.Ticks;
                 // Learn where the player walks (not in combat: position is frozen; not on a flight path)
                 if (Trails != null && (p.Flags & 7) == 1) Trails.Add(p.MapId, p.X, p.Y);
@@ -881,6 +958,11 @@ namespace EdgeLink
             lastError = err;
         }
 
+        // 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right
+        volatile int corner;
+        int misses;
+        static readonly string[] CornerNames = { "top-left", "top-right", "bottom-left", "bottom-right" };
+
         void CaptureLoop()
         {
             int w = Protocol.Blocks * Protocol.BlockPx, h = Protocol.BlockPx;
@@ -900,14 +982,22 @@ namespace EdgeLink
                         }
                         wowFound = hwnd != IntPtr.Zero;
                         if (!wowFound || Native.IsIconic(hwnd)) { Thread.Sleep(250); continue; }
+                        // The strip can sit in any corner (/edgelink corner in game): look in the last good one,
+                        // and after ~1 s without a strip there, try the next corner.
+                        Native.RECT rc;
+                        Native.GetClientRect(hwnd, out rc);
+                        int cw = rc.Right - rc.Left, ch = rc.Bottom - rc.Top;
                         Native.POINT pt = new Native.POINT();
+                        pt.X = (corner == 1 || corner == 3) ? Math.Max(0, cw - w) : 0;
+                        pt.Y = (corner == 2 || corner == 3) ? Math.Max(0, ch - h) : 0;
                         Native.ClientToScreen(hwnd, ref pt);
                         g.CopyFromScreen(pt.X, pt.Y, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
                         Interlocked.Increment(ref framesRead);
                         string err;
                         Page p = Protocol.Decode(bmp, 0, 0, out err);
-                        if (p != null) Feed(p);
+                        if (p != null) { Feed(p); misses = 0; }
                         else if (err != null) FeedError(err);
+                        else if (++misses >= 30) { misses = 0; corner = (corner + 1) % 4; }
                     }
                     catch (Exception ex)
                     {
@@ -922,11 +1012,11 @@ namespace EdgeLink
         string StateJson()
         {
             double age = lastSnapshotTicks == 0 ? -1 : (DateTime.UtcNow.Ticks - lastSnapshotTicks) / 10000000.0;
-            return "{\"ok\":true,\"wowFound\":" + (wowFound ? "true" : "false") + ",\"inputAllowed\":" + (AllowInput ? "true" : "false") +
+            return "{\"ok\":true,\"companionVersion\":" + Json.Esc(AppVersion) + ",\"wowFound\":" + (wowFound ? "true" : "false") + ",\"inputAllowed\":" + (AllowInput ? "true" : "false") +
                    ",\"snapshotAgeSec\":" + age.ToString("0.0", CultureInfo.InvariantCulture) +
                    ",\"snapshotId\":" + snapshotId +
                    ",\"stats\":{\"frames\":" + framesRead + ",\"pagesOk\":" + pagesOk + ",\"pagesBad\":" + pagesBad +
-                   ",\"snapshots\":" + snapshots + ",\"lastError\":" + Json.Esc(lastError) +
+                   ",\"snapshots\":" + snapshots + ",\"stripCorner\":" + Json.Esc(CornerNames[corner]) + ",\"lastError\":" + Json.Esc(lastError) +
                    ",\"https\":" + (HttpsEnabled ? "true" : "false") + ",\"requestsHttp\":" + requestsHttp +
                    ",\"requestsHttps\":" + requestsHttps + ",\"tlsFailures\":" + tlsFailures +
                    ",\"lastTlsError\":" + Json.Esc(lastTlsError) + "}" +
@@ -1045,7 +1135,17 @@ namespace EdgeLink
             if (method == "OPTIONS")
             {
                 body = new byte[0]; status = 204;
-                if (path == "/cmd" && TrustedOrigin(origin)) extraHeaders = "Access-Control-Allow-Headers: X-EdgeLink-Cmd\r\n";
+                if ((path == "/cmd" || path.StartsWith("/update/")) && TrustedOrigin(origin)) extraHeaders = "Access-Control-Allow-Headers: X-EdgeLink-Cmd\r\n";
+            }
+            else if (path == "/update/check" || path == "/update/install")
+            {
+                if (!cmdHeader || !TrustedOrigin(origin)) { status = 403; body = Encoding.UTF8.GetBytes("{\"ok\":false,\"error\":\"forbidden\"}"); }
+                else if (UpdateAction == null) body = Encoding.UTF8.GetBytes("{\"ok\":false,\"error\":\"Updates need the EdgeLink app (not the PowerShell companion).\"}");
+                else body = Encoding.UTF8.GetBytes(UpdateAction(path.Substring(8), QueryValue(query, "v")));
+            }
+            else if (path == "/update")
+            {
+                body = Encoding.UTF8.GetBytes(UpdateJson != null ? UpdateJson() : "{\"status\":\"unsupported\"}");
             }
             else if (path == "/cmd")
             {

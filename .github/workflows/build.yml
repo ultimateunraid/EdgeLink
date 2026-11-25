@@ -6,13 +6,27 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      sign:
+        description: 'Sign the build with Azure Artifact Signing (test the signing setup without releasing)'
+        type: boolean
+        default: false
 
 permissions:
-  contents: read
+  contents: write   # publishing a GitHub Release on v* tags (other events only read)
+  id-token: write   # Azure login with OpenID Connect (no stored Azure password) for code signing
+
+# Code signing (Azure Artifact Signing) runs on v* tags, or on a manual run with "sign" ticked, once these are set
+# in the repository settings (Settings > Secrets and variables > Actions):
+#   variables: AZURE_SIGNING_ENDPOINT (e.g. https://eus.codesigning.azure.net/), AZURE_SIGNING_ACCOUNT, AZURE_CERT_PROFILE
+#   secrets:   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+# Until AZURE_SIGNING_ACCOUNT is set, tagged releases are published unsigned (with a warning).
+env:
+  SIGN: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.sign == true) && vars.AZURE_SIGNING_ACCOUNT != '' }}
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
 
@@ -26,6 +40,10 @@ jobs:
           python tests/roundtrip.py
           python tests/input_test.py
 
+      - name: Update flow test
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests/update_test.ps1
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -33,6 +51,35 @@ jobs:
       - name: Build companion and widget package
         shell: cmd
         run: companion\build.cmd
+
+      - name: Azure login (for code signing)
+        if: env.SIGN == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Sign EdgeLink.exe before the installer is built, so the setup program carries the signed copy
+      - name: Sign EdgeLink.exe
+        if: env.SIGN == 'true'
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_CERT_PROFILE }}
+          files: ${{ github.workspace }}\dist\EdgeLink\EdgeLink.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
 
       - uses: actions/upload-artifact@v4
         with:
@@ -48,8 +95,71 @@ jobs:
           & $iscc installer\EdgeLink.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Sign the setup program
+        if: env.SIGN == 'true'
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_CERT_PROFILE }}
+          files-folder: ${{ github.workspace }}\dist\release
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+
+      # Both files must carry a valid, timestamped signature from the same publisher before anything is released.
+      # (EdgeLink's updater also refuses an update whose publisher differs from the running copy's.)
+      - name: Check signatures
+        if: env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          $files = @('dist/EdgeLink/EdgeLink.exe') + (Get-ChildItem dist/release/EdgeLink-Setup-*.exe).FullName
+          $subjects = @()
+          foreach ($f in $files) {
+            $s = Get-AuthenticodeSignature $f
+            Write-Host "$f : $($s.Status) : $($s.SignerCertificate.Subject) : timestamp $([bool]$s.TimeStamperCertificate)"
+            if ($s.Status -ne 'Valid') { Write-Error "$f is not validly signed ($($s.StatusMessage))"; exit 1 }
+            if (-not $s.TimeStamperCertificate) { Write-Error "$f has no timestamp"; exit 1 }
+            $subjects += $s.SignerCertificate.Subject
+          }
+          if (($subjects | Select-Object -Unique).Count -ne 1) { Write-Error "signers differ: $($subjects -join ' | ')"; exit 1 }
+
+      - name: Unsigned build warning
+        if: startsWith(github.ref, 'refs/tags/v') && env.SIGN != 'true'
+        run: echo "::warning::This release is NOT code-signed. Set AZURE_SIGNING_ACCOUNT and the other signing settings to sign releases."
+
       - uses: actions/upload-artifact@v4
         with:
           name: EdgeLink-Setup
           path: dist/release/EdgeLink-Setup-*.exe
           if-no-files-found: error
+
+      # On a version tag: publish a GitHub Release with the setup program. Its notes are this version's
+      # section of CHANGELOG.md; EdgeLink shows them on the Edge before offering the upgrade, and installs
+      # the setup program from this release (GitHub publishes its SHA-256, which EdgeLink checks).
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $ver = $tag.TrimStart('v')
+          $lines = Get-Content CHANGELOG.md
+          $start = ($lines | Select-String -Pattern "^##\s+\[?v?$([regex]::Escape($ver))\]?(\s|$)" | Select-Object -First 1).LineNumber
+          if (-not $start) { Write-Error "CHANGELOG.md has no '## $ver' section"; exit 1 }
+          $notes = @()
+          for ($i = $start; $i -lt $lines.Count; $i++) { if ($lines[$i] -match '^##\s') { break }; $notes += $lines[$i] }
+          ($notes -join "`n").Trim() | Set-Content -Encoding utf8 release-notes.md
+          $setup = Get-ChildItem dist/release/EdgeLink-Setup-*.exe | Select-Object -First 1
+          gh release create $tag $setup.FullName --title "EdgeLink $ver" --notes-file release-notes.md
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

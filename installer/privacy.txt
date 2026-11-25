@@ -10,10 +10,14 @@ Optionally, taps on the Edge can do things in WoW by sending a short burst of ke
 A program that reads the game window and can send keys is a grey area under Blizzard's terms. Use it at your own risk.
 
 PRIVACY
-Everything stays on your PC, with two optional exceptions:
+Everything stays on your PC, with three optional exceptions:
  - Item icons: item ID numbers are sent to Wowhead to look up icon images.
  - Map art: zone names are sent to Wowhead to look up map images.
+ - Update check: every few hours EdgeLink asks GitHub for its releases (only EdgeLink's version number is sent).
+   An update is downloaded from GitHub only when you choose "Upgrade now".
+   Set CheckUpdates=false in EdgeLink.ini to turn it off.
 No account names, character names or other personal data are sent anywhere.
+The map can show your group and online friends (names, class, level, zone, and for group members their spot on the map). That is the same information the game already shows you in its friends list and on its map; it stays on this PC. Battle.net friends appear by character name and the first part of their BattleTag only, never their real name. Turn it off with /edgelink friends off in WoW.
 You can turn both off on the next page ("Download item icons and map art from Wowhead"), or later by setting Icons=false in EdgeLink.ini.
 
 WHAT SETUP CHANGES

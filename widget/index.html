@@ -23,9 +23,11 @@
     <div id="who">EdgeLink</div>
     <div id="money"></div>
     <div id="where"></div>
+    <div id="chips"></div>
     <div id="alert"></div>
     <div id="wowbtns"><button data-win="2">Map</button><button data-win="1">Bags</button><button data-win="3">Character</button><button data-win="5">Quest log</button><button data-win="4">Sort bags</button></div>
     <div id="status" class="warn">Connecting...</div>
+    <button id="ver" title="EdgeLink versions"></button>
   </div>
   <main id="main">
     <section class="view active" id="v-bags">
@@ -52,7 +54,7 @@
         <div id="reps"></div>
       </div>
     </section>
-    <section class="view" id="v-quests"><div id="qbar"><div class="sum"></div><button id="qexp">Expand all</button><button id="qcol">Collapse all</button></div><div id="quests"></div></section>
+    <section class="view" id="v-quests"><div id="qbar"><div class="sum"></div><button id="qturnin">Route to nearest turn-in &#10148;</button><button id="qexp">Expand all</button><button id="qcol">Collapse all</button></div><div id="quests"></div></section>
     <section class="view" id="v-map">
       <div id="maps">
         <div class="mapframe" id="mf-zone"><button id="coordbtn">&#8982; Coordinates</button><span class="ml"></span><div class="hl"></div><canvas class="areas"></canvas><canvas class="gps"></canvas><div class="pins"></div><div class="marker"></div></div>
@@ -70,10 +72,14 @@
             <button data-kind="D"><span class="pi D">&#9873;</span>Dungeons</button>
             <button data-kind="A"><span class="pi A">&#9733;</span>Points of interest</button>
             <button data-kind="Q"><span class="pi Q">!</span>Quest objectives</button>
+            <button data-kind="G"><span class="pi G">&#9787;</span><span class="lb">Friends</span></button>
             <button data-kind="gH"><span class="pi gH">&#10047;</span><span class="lb">Herbs</span></button>
             <button data-kind="gM"><span class="pi gM">&#9670;</span><span class="lb">Ore</span></button>
             <button data-kind="gF"><span class="pi gF">&#8776;</span><span class="lb">Fishing</span></button>
             <button data-kind="gT"><span class="pi gT">&#9635;</span><span class="lb">Treasure</span></button>
+            <button data-kind="sC" class="svc"><span class="pi sC">&#9876;</span><span class="lb">Class trainers</span></button>
+            <button data-kind="sP" class="svc"><span class="pi sP">&#9874;</span><span class="lb">Profession trainers</span></button>
+            <button data-kind="sS" class="svc"><span class="pi sS">&#9881;</span><span class="lb">Services</span></button>
           </div>
           <div id="zq"><div class="zqh"></div><div class="zql"></div></div>
         </div>
@@ -88,10 +94,17 @@
       <div class="ka"><button data-k="cancel">Cancel</button><button data-k="next">Next</button><button data-k="go">Route &#10148;</button></div></div>
     <div id="tip"><div class="nm"></div><div class="meta"></div><div class="acts"></div></div>
     <div id="toast"></div>
+  <div id="upd"><div class="uc">
+    <div class="uh"><b class="ut">EdgeLink</b><button data-u="close" title="Close">&#10005;</button></div>
+    <div class="uv"></div>
+    <div class="un"></div>
+    <div class="us"></div>
+    <div class="ua"></div>
+  </div></div>
   </main>
 </div>
 <script>
-(function () {
+function edgeLinkApp() {
   "use strict";
   var params = new URLSearchParams(location.search);
   var BRIDGE = params.get("bridge") ||
@@ -137,7 +150,8 @@
   }
 
   // Navigation
-  function showView(name) {
+  function showView(name, auto) {
+    if (!auto && typeof autoView !== "undefined") autoView = autoFrom = null;   // a tab you picked yourself stays
     document.querySelectorAll("#nav button").forEach(function (x) { x.classList.toggle("active", x.dataset.view === name); });
     document.querySelectorAll(".view").forEach(function (v) { v.classList.toggle("active", v.id === "v-" + name); });
     hideTip(); layout(); if (name === "map") drawRoute();
@@ -155,10 +169,56 @@
     $("money").innerHTML = p ? money(p.money) : "";
     var free = 0, total = 0;
     (state && state.bags || []).forEach(function (b) { free += b.free; total += b.slots; });
-    $("where").textContent = p ? (p.zone + (p.subzone ? " • " + p.subzone : "") + (total ? "   |   " + free + "/" + total + " free" : "")) : "";
+    $("where").textContent = p ? (p.zone + (p.subzone ? " \u2022 " + p.subzone : "") + (total ? "   |   " + free + "/" + total + " free" : "")) : "";
     document.documentElement.style.setProperty("--cls", (p && CLASS_COLORS[p.class]) || "#c69b6d");
     $("wowbtns").style.display = canControl() ? "flex" : "none";
-    renderAlert();
+    renderAlert(); renderChips();
+  }
+  /* Header status: Hearthstone, rested XP, new mail, repair estimate, and the auto-tab switch */
+  var prefs = (function () { try { return JSON.parse(localStorage.getItem("edgelink.prefs") || "{}") || {}; } catch (e) { return {}; } })();
+  function savePrefs() { try { localStorage.setItem("edgelink.prefs", JSON.stringify(prefs)); } catch (e) {} }
+  if (prefs.autoTabs == null) prefs.autoTabs = true;
+  function clock(sec) { sec = Math.max(0, Math.round(sec)); var m = Math.floor(sec / 60), s = sec % 60; return m >= 60 ? Math.floor(m / 60) + "h " + (m % 60) + "m" : m + ":" + (s < 10 ? "0" : "") + s; }
+  function renderChips() {
+    var st = state && state.status, se = state && state.session, h = "";
+    if (st && st.hearthReadyAt != null) {
+      var left = st.hearthReadyAt ? st.hearthReadyAt - Date.now() / 1000 : 0;
+      h += '<span class="chip' + (left > 0 ? " cd" : "") + '" title="Hearthstone">&#8962; ' + esc(st.home || "Hearthstone") + (left > 0 ? " <b>" + clock(left) + "</b>" : " <b>ready</b>") + "</span>";
+    }
+    if (se && se.rested > 0 && se.xpMax) h += '<span class="chip rest">Rested <b>' + Math.round(100 * se.rested / se.xpMax) + "%</b></span>";
+    if (st && st.mail) h += '<span class="chip mail">&#9993; <b>New mail</b></span>';
+    if (st && st.repair > 0) h += '<span class="chip rep">Repairs ' + money(st.repair) + "</span>";
+    h += '<button class="chip tog' + (prefs.autoTabs ? " on" : "") + '" id="autotabs" title="Show the matching tab when a vendor, bank, profession or flight map opens in WoW">Auto tabs ' + (prefs.autoTabs ? "on" : "off") + "</button>";
+    $("chips").innerHTML = h;
+  }
+  setInterval(function () { if (state && state.status && state.status.hearthReadyAt) renderChips(); }, 1000);
+  $("chips").addEventListener("click", function (e) {
+    if (!e.target.closest("#autotabs")) return;
+    prefs.autoTabs = !prefs.autoTabs; savePrefs(); autoView = null; renderChips();
+  });
+  /* Auto tabs: follow what is open in the game, and go back afterwards unless you picked a tab yourself */
+  var autoView = null, autoFrom = null, lastCtx = "";
+  function contextView(p) {
+    if (!p || p.combat) return null;
+    var w = p.windows || {};
+    if (w.profession) return "prof";
+    if (w.vendor || w.bank) return "bags";
+    if (w.flightMap || p.taxi) return "map";
+    return null;
+  }
+  function currentView() { var a = document.querySelector("#nav button.active"); return a ? a.dataset.view : null; }
+  function followContext() {
+    if (!prefs.autoTabs || !pos) return;
+    var want = contextView(pos), key = String(want);
+    if (key === lastCtx) return;
+    lastCtx = key;
+    var cur = currentView();
+    if (want) {
+      if (cur !== want) { if (!autoView) autoFrom = cur; autoView = want; showView(want, true); }
+    } else if (autoView) {
+      if (cur === autoView && autoFrom) showView(autoFrom, true);
+      autoView = autoFrom = null;
+    }
   }
   function hasCap(k) { return !!(state && state.pinCaps && state.pinCaps.indexOf(k) >= 0); }
   function canControl() { return inputAllowed && hasCap("I"); }
@@ -224,7 +284,7 @@
       "<span><b>" + free + "</b> of " + total + " slots free</span>" +
       "<span>Junk <b>" + (junkN ? money(junk) : "none") + "</b>" + (junkN ? " (" + junkN + ")" : "") + "</span>" +
       "<span>Sells to vendors for <b>" + money(vend) + "</b></span>" +
-      (anyAh ? "<span>Auction value <b>" + money(ah) + "</b></span>" : hasCap("U") ? "<span>No auction prices yet (scan in Auctionator)</span>" : "");
+      (anyAh ? "<span>Auction value <b>" + money(ah) + "</b></span>" : hasCap("U") ? "<span>No auction prices yet (scan at the auction house)</span>" : "");
     $("bagmode").textContent = bagMode === "all" ? "This character" : "All characters";
     $("bags").style.display = bagMode === "all" ? "none" : "";
     $("chars").style.display = bagMode === "all" ? "" : "none";
@@ -415,20 +475,22 @@
   function renderQuests() {
     var qs = state && state.quests || [];
     var ready = qs.filter(function (q) { return q.complete === 1; }).length;
-    document.querySelector("#qbar .sum").textContent = qs.length + " quests   •   " + ready + " ready to turn in";
+    document.querySelector("#qbar .sum").textContent = qs.length + " quests   \u2022   " + ready + " ready to turn in";
     if (!qs.length) { $("quests").innerHTML = '<div class="empty">Quest log is empty.</div>'; return; }
-    var groups = [], byName = {};
+    var groups = [], byName = {}, READY = "Ready to turn in";
+    updateTurnIn();
+    if (ready) { byName[READY] = { name: READY, quests: [], ready: true }; groups.push(byName[READY]); }
     qs.forEach(function (q) {
-      var g = q.group || "Other";
+      var g = q.complete === 1 ? READY : (q.group || "Other");
       if (!byName[g]) { byName[g] = { name: g, quests: [] }; groups.push(byName[g]); }
       byName[g].quests.push(q);
     });
     var html = "";
     groups.forEach(function (g) {
       var rdy = g.quests.filter(function (q) { return q.complete === 1; }).length;
-      html += '<div class="qgrp' + (isOpen(g.name) ? " open" : "") + '" data-group="' + esc(g.name) + '">' +
+      html += '<div class="qgrp' + ((g.ready && !(openGroups && Object.prototype.hasOwnProperty.call(openGroups, g.name))) || isOpen(g.name) ? " open" : "") + (g.ready ? " rdygrp" : "") + '" data-group="' + esc(g.name) + '">' +
         '<button class="qhd"><span class="chev">▶</span><span>' + esc(g.name) + "</span>" +
-        (rdy ? '<span class="rdy">' + rdy + " ready</span>" : "") + '<span class="cnt">' + g.quests.length + (g.quests.length === 1 ? " quest" : " quests") + "</span></button>" +
+        (rdy && !g.ready ? '<span class="rdy">' + rdy + " ready</span>" : "") + '<span class="cnt">' + g.quests.length + (g.quests.length === 1 ? " quest" : " quests") + "</span></button>" +
         '<div class="qbody">';
       g.quests.forEach(function (q) {
         var doneN = q.objectives.filter(function (o) { return o.done; }).length;
@@ -469,6 +531,25 @@
     document.querySelectorAll(".qgrp").forEach(function (g) { g.classList.toggle("open", open); openGroups[g.dataset.group] = open; });
     store("edgelink.quests.open", openGroups);
   }
+  // The completed quest whose turn-in (its map marker) is closest to you
+  function nearestTurnIn() {
+    var me = playerZone(), best = null, bd = Infinity;
+    (state && state.quests || []).forEach(function (q) {
+      if (q.complete !== 1) return;
+      (state.pins || []).forEach(function (pn) {
+        if (pn.kind !== "Q" || pn.state !== q.id) return;
+        var zp = toZone(pn.map, pn.x, pn.y); if (!zp) return;
+        var d = me ? zDist2(zp, me) : 0;
+        if (d < bd) { bd = d; best = q; }
+      });
+    });
+    return best;
+  }
+  function updateTurnIn() { $("qturnin").style.display = nearestTurnIn() ? "" : "none"; }
+  $("qturnin").addEventListener("click", function () {
+    var q = nearestTurnIn(); if (!q) return;
+    routeToQuest(q.id); showView("map");
+  });
   $("qexp").addEventListener("click", function () { setAll(true); });
   $("qcol").addEventListener("click", function () { setAll(false); });
 
@@ -484,7 +565,10 @@
     skills.forEach(function (k) {
       var pct = k.max ? Math.round(100 * k.rank / k.max) : 0;
       var nrec = (state.recipes || []).filter(function (r) { return r.prof === k.name; }).length;
-      html += '<div class="sk tap' + (k.name === recProf ? " on" : "") + '" data-skill="' + esc(k.name) + '" data-id="' + (k.id || "") + '"><div class="t"><span>' + esc(k.name) + "</span><span>" + k.rank + " / " + k.max +
+      var tr = hasCap("S") && k.id ? nearestService(function (sv) { return sv.cat === "prof:" + k.id; }) : null;
+      var trBtn = !hasCap("S") || !k.id ? "" : tr ? '<button class="ntr" data-trainer="' + k.id + '">Trainer &#10148;</button>'
+        : (state.services ? "" : '<button class="ntr" data-trainer="load">Find trainer</button>');
+      html += '<div class="sk tap' + (k.name === recProf ? " on" : "") + '" data-skill="' + esc(k.name) + '" data-id="' + (k.id || "") + '"><div class="t"><span>' + esc(k.name) + trBtn + "</span><span>" + k.rank + " / " + k.max +
         '</span></div><div class="bar"><i style="width:' + pct + '%"></i></div><div class="sub">' + (nrec ? nrec + (nrec === 1 ? " recipe" : " recipes") : GATHERING[k.name] ? "Gathering skill" : "Recipes not read yet: tap to open in WoW") + "</div></div>";
     });
     var z = mapLevels.zone || (state && state.maps && state.maps[0]);
@@ -518,11 +602,43 @@
   /* Recipes: what you know (read whenever you open a profession window) and what you can make right now */
   var recProf = store("edgelink.recProf") || "", recOnly = !!store("edgelink.recOnly");
   var DIFF = ["#ff8040", "#ffff00", "#40bf40", "#808080"], DIFF_NAME = ["Always skills up", "Often skills up", "Rarely skills up", "No skill up"];
+  function reagentName(id) {
+    var n = null;
+    (state && state.recipes || []).some(function (r) { return r.reagents.some(function (g) { if (g.id === id) { n = g.name; return true; } return false; }); });
+    return n;
+  }
   function haveCounts() {
     var bag = {}, bank = {};
     (state && state.bags || []).forEach(function (b) { b.items.forEach(function (it) { bag[it.id] = (bag[it.id] || 0) + it.count; }); });
     (state && state.bank || []).forEach(function (it) { bank[it.id] = (bank[it.id] || 0) + it.count; });
     return { bag: bag, bank: bank };
+  }
+  /* Shopping list: recipes you want to make, and the reagents you are still missing for them */
+  var shop = store("edgelink.shop") || {}, shopView = false;   // { "prof|name": count }
+  function shopKey(r) { return r.prof + "|" + r.name; }
+  function shopCount() { var n = 0; for (var k in shop) n += shop[k]; return n; }
+  function renderShop(have) {
+    var all = state && state.recipes || [], need = {}, names = {}, rows = "";
+    Object.keys(shop).forEach(function (k) {
+      var r = all.filter(function (x) { return shopKey(x) === k; })[0], n = shop[k];
+      rows += '<div class="shr" data-shop="' + esc(k) + '"><span class="rn">' + esc(k.split("|")[1]) + ' <small>' + esc(k.split("|")[0]) + "</small></span>" +
+        '<button data-sh="-">&#8722;</button><b>' + n + '</b><button data-sh="+">+</button><button data-sh="x">&#10005;</button></div>';
+      if (r) r.reagents.forEach(function (g) { need[g.id] = (need[g.id] || 0) + g.count * n; names[g.id] = g.name || "Item " + g.id; });
+    });
+    if (!rows) return '<div class="rnone">Your shopping list is empty. Tap <b>+ List</b> on a recipe to add it.</div>';
+    var mats = Object.keys(need).map(function (id) {
+      var b = have.bag[id] || 0, k = have.bank[id] || 0, miss = Math.max(0, need[id] - b - k);
+      return { id: id, name: names[id], need: need[id], bag: b, bank: k, miss: miss };
+    }).sort(function (a, b) { return b.miss - a.miss || (a.name < b.name ? -1 : 1); });
+    var missing = mats.filter(function (m) { return m.miss > 0; }).length;
+    return '<div class="shop"><div class="shl"><h4>To make</h4>' + rows + '<button class="shclr" data-sh="clear">Clear list</button></div>' +
+      '<div class="shm"><h4>' + (missing ? missing + " reagent" + (missing === 1 ? "" : "s") + " still to get" : "You have everything") + "</h4>" +
+      mats.map(function (m) {
+        var seller = m.miss && hasCap("S") ? nearestService(function (sv) { return (sv.items || []).indexOf(+m.id) >= 0; }) : null;
+        return '<div class="shi ' + (m.miss ? "no" : m.bag >= m.need ? "ok" : "bk") + '"><span>' + esc(m.name) +
+          (seller ? ' <button class="buy" data-buy="' + m.id + '">Buy from ' + esc(seller.name) + " &#10148;</button>" : "") + "</span><span>" +
+          (m.miss ? "<b>" + m.miss + " missing</b>" : m.bag >= m.need ? "in bags" : "take from bank") + "</span><span>" + m.bag + (m.bank ? "+" + m.bank : "") + " / " + m.need + "</span></div>";
+      }).join("") + "</div></div>";
   }
   function renderRecipes() {
     var all = state && state.recipes || [], profs = [];
@@ -546,8 +662,11 @@
     var total = rows.length, makeable = rows.filter(function (x) { return x.can > 0; }).length;
     if (recOnly) rows = rows.filter(function (x) { return x.canBank > 0; });
     rows.sort(function (a, b) { return (b.can > 0) - (a.can > 0) || (b.canBank > 0) - (a.canBank > 0) || a.r.diff - b.r.diff || (a.r.name < b.r.name ? -1 : 1); });
-    $("rbar").innerHTML = profs.map(function (p) { return '<button data-prof="' + esc(p) + '" class="' + (p === recProf ? "on" : "") + '">' + esc(p) + "</button>"; }).join("") +
-      '<span class="sp"></span><span class="rc">' + makeable + " of " + total + ' can be made now</span><button data-only="1" class="' + (recOnly ? "on" : "") + '">Only what I can make</button>';
+    var nShop = shopCount();
+    $("rbar").innerHTML = profs.map(function (p) { return '<button data-prof="' + esc(p) + '" class="' + (p === recProf && !shopView ? "on" : "") + '">' + esc(p) + "</button>"; }).join("") +
+      '<span class="sp"></span>' + (shopView ? "" : '<span class="rc">' + makeable + " of " + total + ' can be made now</span><button data-only="1" class="' + (recOnly ? "on" : "") + '">Only what I can make</button>') +
+      '<button data-shopview="1" class="' + (shopView ? "on" : "") + '">Shopping list' + (nShop ? " (" + nShop + ")" : "") + "</button>";
+    if (shopView) { $("rlist").innerHTML = renderShop(have); return; }
     $("rlist").innerHTML = rows.map(function (x) {
       var r = x.r;
       var rg = r.reagents.map(function (g) {
@@ -555,11 +674,19 @@
         return '<span class="' + (ok ? "ok" : b + k >= g.count ? "bk" : "no") + '">' + esc(g.name || "Item " + g.id) + " " + b + (k ? "+" + k : "") + "/" + g.count + "</span>";
       }).join("");
       var badge = x.can > 0 ? '<span class="mk">Make ' + x.can + "</span>" : x.canBank > 0 ? '<span class="mk bank">' + x.canBank + " with bank</span>" : "";
-      return '<div class="rr' + (x.can > 0 ? " can" : "") + '"><div class="rt"><i style="background:' + DIFF[r.diff] + '" title="' + DIFF_NAME[r.diff] + '"></i><span class="rn">' + esc(r.name) +
-        (r.qty > 1 ? " \u00D7" + r.qty : "") + "</span>" + badge + '</div><div class="rg">' + rg + "</div></div>";
+      var inList = shop[shopKey(r)] || 0;
+      return '<div class="rr' + (x.can > 0 ? " can" : "") + '" data-rkey="' + esc(shopKey(r)) + '"><div class="rt"><i style="background:' + DIFF[r.diff] + '" title="' + DIFF_NAME[r.diff] + '"></i><span class="rn">' + esc(r.name) +
+        (r.qty > 1 ? " \u00D7" + r.qty : "") + "</span>" + badge + '<button class="add" data-add="1">+ List' + (inList ? " (" + inList + ")" : "") + '</button></div><div class="rg">' + rg + "</div></div>";
     }).join("") || '<div class="rnone">Nothing you can make right now.</div>';
   }
   $("skills").addEventListener("click", function (e) {
+    var tb = e.target.closest("[data-trainer]");
+    if (tb) {
+      if (tb.dataset.trainer === "load") { requestServices(); return; }
+      var line = tb.dataset.trainer, p = nearestService(function (sv) { return sv.cat === "prof:" + line; });
+      if (p) routeToPin(p);
+      return;
+    }
     var el = e.target.closest(".sk.tap"); if (!el) return;
     var name = el.dataset.skill, has = (state.recipes || []).some(function (r) { return r.prof === name; });
     if (has) { recProf = name; store("edgelink.recProf", recProf); renderProf(); $("rlist").scrollTop = 0; return; }
@@ -567,8 +694,33 @@
     if (canControl() && el.dataset.id) sendGame("6" + el.dataset.id, "Opening " + name + " in WoW to read its recipes");
     else toast("Open " + name + " in WoW once and its recipes will appear here", true);
   });
+  $("rlist").addEventListener("click", function (e) {
+    var add = e.target.closest("[data-add]");
+    if (add) {
+      var k = add.closest("[data-rkey]").dataset.rkey;
+      shop[k] = (shop[k] || 0) + 1; store("edgelink.shop", shop);
+      toast("Added " + k.split("|")[1] + " to your shopping list"); renderRecipes(); return;
+    }
+    var buy = e.target.closest("[data-buy]");
+    if (buy) {
+      var bid = +buy.dataset.buy, sp = nearestService(function (sv) { return (sv.items || []).indexOf(bid) >= 0; });
+      if (sp) routeToPin(sp);
+      return;
+    }
+    var sh = e.target.closest("[data-sh]"); if (!sh) return;
+    if (sh.dataset.sh === "clear") shop = {};
+    else {
+      var key = sh.closest("[data-shop]").dataset.shop;
+      if (sh.dataset.sh === "+") shop[key]++;
+      else if (sh.dataset.sh === "-") { if (--shop[key] <= 0) delete shop[key]; }
+      else delete shop[key];
+    }
+    store("edgelink.shop", shop); renderRecipes();
+  });
   $("rbar").addEventListener("click", function (e) {
     var b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.shopview) { shopView = !shopView; renderRecipes(); $("rlist").scrollTop = 0; return; }
+    shopView = false;
     if (b.dataset.prof) { recProf = b.dataset.prof; store("edgelink.recProf", recProf); }
     else { recOnly = !recOnly; store("edgelink.recOnly", recOnly); }
     renderRecipes(); $("rlist").scrollTop = 0;
@@ -757,23 +909,135 @@
   });
 
   /* Map pins: flight points, dungeons, points of interest, quest objectives */
-  var PIN_GLYPH = { F: "\u2708", D: "\u2691", A: "\u2605", Q: "!", W: "\u2316", V: "\u2620" };
+  var PIN_GLYPH = { F: "\u2708", D: "\u2691", A: "\u2605", Q: "!", W: "\u2316", V: "\u2620", sC: "\u2694", sP: "\u2692", sS: "\u2699" };
   // Pins from the game plus the things the minimap is pointing out (kind V)
+  /* Trainers and services (from Polestar's NPC database, when Polestar is installed) */
+  var SVC = {
+    "class": { k: "sC", label: "Class trainer", glyph: "\u2694" }, prof: { k: "sP", label: "Profession trainer", glyph: "\u2692" },
+    weapon: { k: "sS", label: "Weapon master", glyph: "\u2020" }, repair: { k: "sS", label: "Repairs", glyph: "\u2699" },
+    vendor: { k: "sS", label: "Vendor", glyph: "\u25CE" }, bank: { k: "sS", label: "Banker", glyph: "\u00A4" },
+    auction: { k: "sS", label: "Auctioneer", glyph: "\u2696" }, stable: { k: "sS", label: "Stable master", glyph: "\u265E" }
+  };
+  function svcDef(cat) { return SVC[String(cat).split(":")[0]] || SVC.vendor; }
+  function servicePins() {
+    var z = mapLevels.zone, list = state && state.services;
+    if (!z || !list) return [];
+    return list.map(function (s) {
+      var d = svcDef(s.cat);
+      return { kind: d.k, map: z.id, x: s.x, y: s.y, name: s.name, state: 0, faction: 0, svc: s, glyph: d.glyph, label: s.title || d.label };
+    });
+  }
+  function skillName(line) { var k = (state && state.skills || []).filter(function (x) { return String(x.id) === String(line); })[0]; return k ? k.name : null; }
+  // Nearest service in this zone that passes `test`
+  function nearestService(test) {
+    var me = playerZone(), best = null, bd = Infinity;
+    servicePins().forEach(function (p) {
+      if (!test(p.svc)) return;
+      var d = me ? zDist2([p.x, p.y], me) : 0;
+      if (d < bd) { bd = d; best = p; }
+    });
+    return best;
+  }
+  function routeToPin(p) { setRoute({ map: p.map, x: p.x, y: p.y, label: p.name + (p.label ? " (" + p.label + ")" : "") }); showView("map"); }
+  function requestServices() {
+    if (state && state.services) return;
+    if (canControl()) sendGame("81", "Reading trainer and service locations from Polestar");
+    else toast("Type /edgelink services on in WoW to load trainer locations from Polestar", true);
+  }
   function allPins() {
-    var base = state && state.pins || [];
+    var base = (state && state.pins || []).concat(servicePins());
     var near = (state && state.nearby || []).filter(function (v) { return v.x != null; }).map(function (v) {
       return { kind: "V", map: v.map, x: v.x, y: v.y, name: v.name, state: 0, faction: 0, label: nearbyKind(v) };
     });
-    return base.concat(near);
+    return base.concat(near, friendPins());
   }
-  var PIN_LABEL = { F: "Flight point", D: "Dungeon entrance", A: "Point of interest", Q: "Quest objective", W: "Waypoint", V: "Nearby" };
+  /* Friends and group. Group members come with an exact spot (the game shares it with the party);
+     friends and Battle.net friends only say which zone they are in, so they are shown as a count on
+     that zone of the continent map, and everyone is listed from the badge in the corner of the zone map. */
+  var CLASS_COLOR = { WARRIOR: "#c69b6d", PALADIN: "#f48cba", HUNTER: "#aad372", ROGUE: "#fff468", PRIEST: "#f0f0f0",
+    DEATHKNIGHT: "#c41e3b", SHAMAN: "#2459ff", MAGE: "#68ccef", WARLOCK: "#9382c9", MONK: "#00ff96", DRUID: "#ff7c0a",
+    DEMONHUNTER: "#a330c9", EVOKER: "#33937f" };
+  var SEP = " " + String.fromCharCode(8226) + " ";
+  function friendList() { return state && state.friends || []; }
+  function hasFlag(f, c) { return (f.flags || "").indexOf(c) >= 0; }
+  // A zone named in the friends list -> map id, preferring zones on the continent you are looking at
+  function zoneIdByName(name) {
+    if (!name) return null;
+    var c = mapLevels.cont, hits = mapTree().filter(function (t) { return t.name === name; });
+    hits.sort(function (a, b) { return ((c && b.p === c.id) ? 1 : 0) - ((c && a.p === c.id) ? 1 : 0); });
+    if (hits.length) return hits[0].id;
+    var m = (state && state.maps || []).filter(function (m) { return m.name === name; })[0];
+    return m ? m.id : null;
+  }
+  // Any zone of the current continent -> continent coordinates
+  function zoneToCont(map, x, y) {
+    var p = toCont(map, x, y); if (p) return p;
+    var c = mapLevels.cont, n = treeNode(map);
+    if (c && n && n.p === c.id && n.rect && n.rect[1] > n.rect[0]) { var r = n.rect; return [r[0] + x * (r[1] - r[0]), r[2] + y * (r[3] - r[2])]; }
+    return null;
+  }
+  function zoneName(id) { var n = treeNode(id); if (n) return n.name; var m = (state && state.maps || []).filter(function (m) { return m.id === id; })[0]; return m ? m.name : ""; }
+  function className(tok) { return tok ? cap(tok.toLowerCase().replace("deathknight", "death knight").replace("demonhunter", "demon hunter")) : ""; }
+  function friendLine(f) {
+    var bits = [];
+    bits.push(f.kind === "G" ? "Group" : f.kind === "B" ? "Battle.net" + (f.tag ? " (" + f.tag + ")" : "") : "Friend");
+    if (f.level) bits.push("Lv " + f.level + (f.cls ? " " + className(f.cls) : ""));
+    if (hasFlag(f, "o")) bits.push("offline");
+    else if (hasFlag(f, "x")) bits.push("playing another WoW version");
+    else {
+      var where = f.area || (f.map != null ? zoneName(f.map) : "");
+      if (where) bits.push(where);
+      if (f.kind === "G" && f.x == null) bits.push("no position (instance or out of range)");
+    }
+    if (hasFlag(f, "a")) bits.push("away");
+    if (hasFlag(f, "d")) bits.push("busy");
+    return bits.join(SEP);
+  }
+  function friendPins() {
+    var list = friendList(), out = [], z = mapLevels.zone, c = mapLevels.cont, perZone = {};
+    if (!list.length) return out;
+    list.forEach(function (f) {
+      var col = CLASS_COLOR[f.cls] || "#9fe0a8", dim = hasFlag(f, "o") || hasFlag(f, "a") ? " dim" : "";
+      var initial = (f.name || "?").charAt(0).toUpperCase();
+      if (f.kind === "G" && f.map != null && f.x != null) {
+        var base = { kind: "G", name: f.name, meta: friendLine(f), color: col, extra: "mem" + dim, glyph: initial,
+                     route: { map: f.map, x: f.x, y: f.y } };
+        out.push(Object.assign({ map: f.map, x: f.x, y: f.y }, base));
+        if (c && f.map !== c.id) { var cp = zoneToCont(f.map, f.x, f.y); if (cp) out.push(Object.assign({ map: c.id, x: cp[0], y: cp[1] }, base)); }
+        return;
+      }
+      if (hasFlag(f, "o") || hasFlag(f, "x")) return;
+      var zid = f.map != null ? f.map : zoneIdByName(f.area);
+      if (zid == null) return;
+      (perZone[zid] = perZone[zid] || []).push(f);
+    });
+    // Count badges at the centre of each zone (continent map) where friends without an exact spot are
+    Object.keys(perZone).forEach(function (k) {
+      var zid = +k, fs = perZone[k], n = treeNode(zid), r = null;
+      if (c && n && n.p === c.id) r = n.rect;
+      else if (c && z && zid === z.id) r = c.rect;
+      if (!r || r[1] - r[0] >= 0.95) return;
+      out.push({ kind: "G", map: c.id, x: (r[0] + r[1]) / 2, y: (r[2] + r[3]) / 2, extra: "zone", glyph: String(fs.length),
+        name: fs.length + (fs.length === 1 ? " friend in " : " friends in ") + (zoneName(zid) || fs[0].area),
+        meta: fs.map(function (f) { return f.name + " (" + friendLine(f) + ")"; }).join(";  ") });
+    });
+    // Roster badge on the zone map: everyone online, wherever they are
+    if (z) {
+      var on = list.filter(function (f) { return !hasFlag(f, "o"); });
+      if (on.length) out.push({ kind: "G", map: z.id, x: 0.05, y: 0.93, extra: "roster", glyph: String(on.length),
+        name: on.length + (on.length === 1 ? " friend online" : " friends online"),
+        meta: on.map(function (f) { return f.name + " (" + friendLine(f) + ")"; }).join(";  ") });
+    }
+    return out;
+  }
+  var PIN_LABEL = { F: "Flight point", D: "Dungeon entrance", A: "Point of interest", Q: "Quest objective", W: "Waypoint", V: "Nearby", G: "Friend" };
   var pinOn = store("edgelink.pins") || { F: true, D: true, A: false, Q: true };
-  ["gH", "gM", "gT"].forEach(function (k) { if (pinOn[k] === undefined) pinOn[k] = true; });
+  ["gH", "gM", "gT", "G"].forEach(function (k) { if (pinOn[k] === undefined) pinOn[k] = true; });
   if (pinOn.gF === undefined) pinOn.gF = false;
   // Where each layer shows: "zone" = local map only, "both" = local + continent map.
   var pinScope = store("edgelink.pinScope") || {};
-  ["F", "D", "A", "Q"].forEach(function (k) { if (!pinScope[k]) pinScope[k] = "both"; });
-  ["gH", "gM", "gF", "gT"].forEach(function (k) { if (!pinScope[k]) pinScope[k] = "zone"; });
+  ["F", "D", "A", "Q", "G"].forEach(function (k) { if (!pinScope[k]) pinScope[k] = "both"; });
+  ["gH", "gM", "gF", "gT", "sC", "sP", "sS"].forEach(function (k) { if (!pinScope[k]) pinScope[k] = "zone"; });
   function shownOn(k, frame) { if (k === "W" || k === "V") return true; return !!pinOn[k] && (frame === "mf-zone" || pinScope[k] === "both"); }
   var GATHER = { H: { label: "Herb", glyph: "\u273F" }, M: { label: "Ore", glyph: "\u25C6" }, F: { label: "Fishing spot", glyph: "\u2248" }, T: { label: "Treasure", glyph: "\u25A3" } };
   function zoneNodes() { return state && state.nodes || []; }
@@ -781,8 +1045,14 @@
   function caps() { return (state && state.pinCaps) || []; }
   function renderPinBar() {
     document.querySelectorAll("#pinbar button").forEach(function (b) {
-      var k = b.dataset.kind, ok = k.charAt(0) === "g" || caps().indexOf(k) >= 0;
+      var k = b.dataset.kind, svc = k.charAt(0) === "s", ok = k.charAt(0) === "g" || (svc ? caps().indexOf("S") >= 0 : caps().indexOf(k) >= 0);
+      if (svc) {
+        b.style.display = ok ? "" : "none";
+        var cnt = servicePins().filter(function (p) { return p.kind === k; }).length;
+        b.querySelector(".lb").textContent = { sC: "Class trainers", sP: "Profession trainers", sS: "Services" }[k] + (state && state.services ? " (" + cnt + ")" : "");
+      }
       if (k.charAt(0) === "g") b.querySelector(".lb").textContent = { gH: "Herbs", gM: "Ore", gF: "Fishing", gT: "Treasure" }[k] + " (" + nodeCount(k.charAt(1)) + ")";
+      if (k === "G") b.querySelector(".lb").textContent = "Friends (" + friendList().filter(function (f) { return !hasFlag(f, "o"); }).length + ")";
       b.disabled = !ok;
       b.title = ok ? "" : "Not available in this game client";
       b.classList.toggle("on", ok && !!pinOn[k]);
@@ -790,17 +1060,84 @@
       if (!sc) { sc = document.createElement("span"); sc.className = "sc"; b.appendChild(sc); }
       sc.textContent = pinScope[k] === "both" ? "Both" : "Zone";
       sc.classList.toggle("both", pinScope[k] === "both");
+      if (k === "gH" || k === "gM") {
+        var lp = b.querySelector(".lp");
+        if (!lp) { lp = document.createElement("span"); lp.className = "lp"; lp.textContent = "Loop"; lp.title = "Plan a loop through every learned node in this zone"; b.insertBefore(lp, sc); }
+        lp.style.display = nodeCount(k.charAt(1)) >= 2 ? "" : "none";
+        lp.classList.toggle("on", !!(route && route.loop && route.kind === k.charAt(1)));
+      }
     });
+  }
+  /* Gathering loop: every learned herb or ore node in this zone, in a short round trip from where you stand */
+  function buildLoop(kind) {
+    var pts = [];
+    zoneNodes().forEach(function (n) { if (n.kind === kind) n.pts.forEach(function (p) { pts.push([p[0], p[1]]); }); });
+    if (pts.length < 2) return null;
+    var me = playerZone() || pts[0], left = pts.slice(), order = [], cur = me;
+    while (left.length) {              // nearest neighbour first
+      var bi = 0, bd = Infinity;
+      left.forEach(function (p, i) { var d = zDist2(p, cur); if (d < bd) { bd = d; bi = i; } });
+      cur = left.splice(bi, 1)[0]; order.push(cur);
+    }
+    var d = function (a, b) { return Math.sqrt(zDist2(a, b)); }, n = order.length, improved = true, guard = 0;
+    while (improved && guard++ < 60) {  // then untangle crossings (2-opt) on the closed loop
+      improved = false;
+      for (var i = 0; i < n - 1; i++) for (var j = i + 2; j < n; j++) {
+        var a = order[i], b = order[i + 1], c = order[j], e = order[(j + 1) % n];
+        if (j + 1 === n && i === 0) continue;
+        if (d(a, c) + d(b, e) < d(a, b) + d(c, e) - 0.01) { order = order.slice(0, i + 1).concat(order.slice(i + 1, j + 1).reverse(), order.slice(j + 1)); improved = true; }
+      }
+    }
+    var total = 0; for (var k = 0; k < n; k++) total += d(order[k], order[(k + 1) % n]);
+    return { pts: order, yards: total };
+  }
+  function startLoop(kind) {
+    var z = mapLevels.zone, l = buildLoop(kind); if (!l || !z) return;
+    setRoute({ loop: true, kind: kind, zone: z.id, pts: l.pts, yards: l.yards,
+      label: GATHER[kind].label + " loop: " + l.pts.length + " nodes in " + z.name });
+    renderPinBar();
+  }
+  // Where you are on the loop: the node to head for next, and the loop drawn on from there
+  function loopAhead(me) {
+    var pts = route.pts, n = pts.length, bi = 0, bd = Infinity;
+    pts.forEach(function (p, i) { var dd = zDist2(p, me); if (dd < bd) { bd = dd; bi = i; } });
+    if (Math.sqrt(bd) < 25) bi = (bi + 1) % n;     // standing on it: the next one
+    var ring = pts.slice(bi).concat(pts.slice(0, bi));
+    return { next: ring[0], ring: ring };
+  }
+  function drawLoop(card) {
+    var z = mapLevels.zone, me = playerZone();
+    if (!z || z.id !== route.zone) { route = null; renderPinBar(); drawRoute(); return; }
+    card.style.display = "block";
+    card.querySelector(".rl").textContent = route.label;
+    var distEl = card.querySelector(".dist"), turnEl = card.querySelector(".turn"), stepsEl = card.querySelector(".steps");
+    var ring = route.pts, next = ring[0];
+    if (me) { var a = loopAhead(me); ring = a.ring; next = a.next; }
+    var path = (me ? [me] : []).concat(ring, [ring[0]]);
+    distEl.textContent = me ? "Next node " + fmtDist(Math.sqrt(zDist2(me, next))) : (pos && pos.combat ? "In combat: position paused" : "Waiting for your position");
+    turnEl.textContent = me && !pos.taxi ? turnText((next[0] - me[0]) * (z.yw || 1), (next[1] - me[1]) * (z.yh || 1), pos.facing) : "";
+    stepsEl.innerHTML = "Whole loop " + fmtDist(route.yards) + "  \u2022  nodes are the ones you have gathered here before";
+    stepsEl.style.display = "";
+    finishCard(card, null);
+    card.querySelector('[data-act="mode"]').style.display = "none";
+    drawPath("mf-zone", [{ pts: path }], [next]);
+    drawPath("mf-cont", [{ pts: path.map(function (p) { return toCont(z.id, p[0], p[1]); }).filter(Boolean) }], [toCont(z.id, next[0], next[1])], true);
   }
   $("pinbar").addEventListener("click", function (e) {
     var b = e.target.closest("button");
     if (!b || b.disabled) return;
     var k = b.dataset.kind;
+    if (e.target.closest(".lp")) {
+      if (route && route.loop && route.kind === k.charAt(1)) { setRoute(null); renderPinBar(); }
+      else { pinOn[k] = true; store("edgelink.pins", pinOn); startLoop(k.charAt(1)); renderPins(); }
+      return;
+    }
     if (e.target.closest(".sc")) {
       pinScope[k] = pinScope[k] === "both" ? "zone" : "both";
       if (!pinOn[k]) pinOn[k] = true;           // changing where it shows implies you want to see it
       store("edgelink.pinScope", pinScope);
     } else pinOn[k] = !pinOn[k];
+    if (k.charAt(0) === "s" && pinOn[k]) requestServices();
     store("edgelink.pins", pinOn);
     renderPinBar(); renderPins();
   });
@@ -816,11 +1153,12 @@
       if (m) pins.forEach(function (p, i) {
         if (p.map !== m.id || !shownOn(p.kind, pair[0])) return;
         if (p.kind === "F" && p.faction === enemy) return;
-        var cls = p.kind;
+        var cls = p.kind + (p.extra ? " " + p.extra : "");
         if (p.kind === "F" && p.state === 2) cls += " unk";
         if (p.kind === "Q") { var q = questById(p.state); if (q && q.complete === 1) cls += " done"; if (p.state === selQuest) cls += " sel"; }
-        var glyph = (p.kind === "Q" && cls.indexOf("done") > 0) ? "?" : PIN_GLYPH[p.kind];
-        html += '<span class="pi ' + cls + '" data-i="' + i + '" style="left:' + (p.x * 100) + "%;top:" + (p.y * 100) + '%">' + glyph + "</span>";
+        var glyph = p.glyph || ((p.kind === "Q" && cls.indexOf("done") > 0) ? "?" : PIN_GLYPH[p.kind]);
+        html += '<span class="pi ' + cls + '" data-i="' + i + '" style="left:' + (p.x * 100) + "%;top:" + (p.y * 100) + "%" +
+          (p.color ? ";background:" + p.color : "") + '">' + (p.kind === "G" ? esc(glyph) : glyph) + "</span>";
       });
       // Learned nodes are in zone coordinates; on the continent map, place them inside the zone's rectangle.
       var r = pair[0] === "mf-cont" && m ? m.rect : null;
@@ -835,10 +1173,16 @@
     });
   }
   function pinText(p) {
+    if (p.kind === "G") return { title: p.name, meta: p.meta || "" };
     if (p.kind === "g") return { title: p.name, meta: GATHER[p.gk].label + " \u2022 gathered here " + p.count + (p.count === 1 ? " time" : " times") };
     var title = p.name, meta = p.kind === "V" ? p.label : p.kind === "W" ? (p.state === 1 ? "Your map pin" : "TomTom waypoint") : PIN_LABEL[p.kind];
     if (p.kind === "Q") { var q = questById(p.state); title = q ? q.title : "Quest " + p.state; meta = q && q.complete === 1 ? "Ready to turn in" : "Quest objective"; }
     if (p.kind === "F") meta = p.state === 0 ? "Flight point (you are here)" : p.state === 2 ? "Flight point (not discovered)" : "Flight point";
+    if (p.svc) {
+      meta = p.label;
+      var sells = (p.svc.items || []).map(reagentName).filter(Boolean);
+      if (sells.length) meta += " \u2022 sells " + sells.join(", ");
+    }
     return { title: title || PIN_LABEL[p.kind], meta: meta };
   }
   // Touch-friendly: list every pin within reach of the tap, since town pins often overlap.
@@ -888,6 +1232,7 @@
       return { map: mapLevels.zone.id, x: pt[0], y: pt[1], label: n.name };
     }
     if (p.kind === "Q") { var q = questById(p.state); return { qid: p.state, label: q ? q.title : "Quest" }; }
+    if (p.kind === "G") return p.route ? { map: p.route.map, x: p.route.x, y: p.route.y, label: p.name } : null;
     return { map: p.map, x: p.x, y: p.y, label: p.name || PIN_LABEL[p.kind] };
   }
   function setTipActions() {
@@ -1014,6 +1359,7 @@
     var x = live ? pos.x : null, y = live ? pos.y : null, f = live ? pos.facing : null;
     placeMarker("mf-zone", z, x, y, f);
     placeMarker("mf-cont", mapLevels.cont, x, y, f);
+    followContext();
     drawRoute();
     var note = "";
     if (pos && pos.combat) note = '<div class="n warn">In combat: position paused</div>';
@@ -1029,14 +1375,14 @@
   function setRoute(r) {
     route = r;
     if (!r || !r.qid) { if (selQuest && (!r || r.qid !== selQuest)) { selQuest = null; renderZoneQuests(); renderPins(); drawArea(); } }
-    renderQuests(); drawRoute();
+    renderQuests(); renderPinBar(); drawRoute();
     requestNav();
   }
   /* Polestar (optional addon): ask its walking router for the real path to the route target */
   var navSent = null;        // { map, x, y } last asked for
   function requestNav() {
     if (!hasCap("P") || !canControl()) { navSent = null; return; }
-    if (!route) { if (navSent) { navSent = null; sendGame("70", "Route cleared"); } return; }
+    if (!route || route.loop) { if (navSent) { navSent = null; sendGame("70", "Route cleared"); } return; }
     var t = routeTarget(), z = mapLevels.zone, c = mapLevels.cont; if (!t || !z) return;
     var m = z, p = t.z;
     if (p[0] <= 0 || p[0] >= 1 || p[1] <= 0 || p[1] >= 1) { m = c; p = c ? toCont(z.id, p[0], p[1]) : null; }
@@ -1092,6 +1438,7 @@
   // Resolve the route to a point in zone coordinates (may lie outside 0..1 when it's in another zone)
   function routeTarget() {
     if (!route) return null;
+    if (route.loop) { var me0 = playerZone(); return { z: me0 ? loopAhead(me0).next : route.pts[0], src: route }; }
     if (!route.qid) { var p = toZone(route.map, route.x, route.y); return p ? { z: p, src: route } : null; }
     var me = playerZone(), z = mapLevels.zone, c = mapLevels.cont, cands = [];
     var a = z ? areaFor(route.qid, z.id) : null;
@@ -1215,9 +1562,10 @@
       if (!sg.pts || sg.pts.length < 2) return;
       var trace = function () { ctx.beginPath(); sg.pts.forEach(function (p, i) { if (i) ctx.lineTo(p[0] * w, p[1] * h); else ctx.moveTo(p[0] * w, p[1] * h); }); ctx.stroke(); };
       ctx.setLineDash([]); ctx.strokeStyle = "rgba(0,0,0,.65)"; ctx.lineWidth = lw + 4; trace();
+      ctx.globalAlpha = sg.faint ? 0.5 : 1;
       ctx.strokeStyle = sg.fly ? "#ffd24a" : "#5ff0ff"; ctx.lineWidth = lw;
       ctx.setLineDash(sg.fly ? [1, lw * 2.4] : [lw * 3, lw * 2.2]); ctx.lineDashOffset = -dashPhase * lw; trace();
-      ctx.setLineDash([]);
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
     });
     (marks || []).forEach(function (m, i) {
       if (!m) return;
@@ -1249,8 +1597,57 @@
     if (pathCache) { var p = pathCache.slice(); p[0] = me; return { pts: p, learned: true }; }
     return { pts: [me, to], learned: false };
   }
+  /* Polestar (optional addon): the route it is guiding you on, as its own map lines show it */
+  var psHidden = null;   // a Polestar route dismissed on the Edge stays hidden until its target changes
+  var PS_STEP = { walk: "Walk", flight: "Fly", fly: "Fly", hearth: "Hearthstone", teleport: "Teleport", portal: "Portal", lift: "Lift", boat: "Boat", zeppelin: "Zeppelin", tram: "Tram" };
+  function psRoute() {
+    var r = hasCap("P") && state && state.polestar;
+    return r && (r.legs.length || r.x != null) ? r : null;
+  }
+  function psKey(r) { return r ? r.label + "@" + (r.x == null ? "" : r.x.toFixed(3)) + "," + (r.y == null ? "" : r.y.toFixed(3)) : ""; }
+  // the Polestar route when it is heading where our own route points (after "Route here" handed it to Polestar)
+  function psMatches(t) {
+    var r = psRoute();
+    if (!r || !t || r.x == null) return null;
+    return Math.sqrt(zDist2([r.x, r.y], t.z)) <= 15 ? r : null;
+  }
+  // segments, marks and the walking line ahead of you, from Polestar's legs
+  function psPlan(r, me) {
+    var z = mapLevels.zone, legs = r.legs.filter(function (l) { return l.pts.length > 1; });
+    var ci = 0; legs.forEach(function (l, i) { if (l.current) ci = i; });
+    legs = legs.slice(ci);
+    var zoneSegs = [], contSegs = [], ahead = [], kinds = [];
+    legs.forEach(function (l, i) {
+      var pts = l.pts.slice(), fly = l.kind !== "walk";
+      if (i === 0 && me && !fly) {
+        // start the current walk from the corner nearest you, not from behind you
+        var bi = 0, bd = Infinity;
+        pts.forEach(function (q, k) { var d = zDist2(q, me); if (d < bd) { bd = d; bi = k; } });
+        if (bi < pts.length - 1) { var a = pts[bi], b = pts[bi + 1]; if ((b[0] - a[0]) * (me[0] - a[0]) + (b[1] - a[1]) * (me[1] - a[1]) > 0) bi++; }
+        pts = [me].concat(pts.slice(bi));
+      }
+      zoneSegs.push({ pts: pts, fly: fly, faint: i > 0 });
+      contSegs.push({ pts: pts.map(function (p) { return toCont(z.id, p[0], p[1]); }).filter(Boolean), fly: fly, faint: i > 0 });
+      ahead = ahead.concat(ahead.length ? pts.slice(1) : pts);
+      var k = PS_STEP[l.kind] || (l.kind.charAt(0).toUpperCase() + l.kind.slice(1));
+      if (kinds[kinds.length - 1] !== k) kinds.push(k);
+    });
+    var end = r.x != null ? [r.x, r.y] : (ahead.length ? ahead[ahead.length - 1] : null);
+    if (!ahead.length && me && end) { ahead = [me, end]; zoneSegs = [{ pts: ahead }]; contSegs = [{ pts: [toCont(z.id, me[0], me[1]), toCont(z.id, end[0], end[1])].filter(Boolean) }]; }
+    var walkOnly = kinds.length <= 1 && (!kinds.length || kinds[0] === "Walk");
+    var steps = walkOnly ? "Route from Polestar" : "Route from Polestar: " + kinds.map(function (k, i) { return "<b>" + (i + 1) + "</b> " + esc(k); }).join("  ");
+    if (legs.length && legs[0].straight) steps += " (straight line until Polestar has the walking path)";
+    return { zoneSegs: zoneSegs, contSegs: contSegs, ahead: ahead, end: end, steps: steps, flyFirst: legs.length && legs[0].kind !== "walk" };
+  }
   function drawRoute() {
     var card = $("route");
+    var psOnly = null;
+    if (!route) {
+      var pr = psRoute();
+      if (pr && psKey(pr) !== psHidden) psOnly = pr;
+    }
+    if (psOnly) { drawPolestarOnly(card, psOnly); return; }
+    if (route && route.loop) { drawLoop(card); return; }
     if (route && route.qid && !questById(route.qid) && state) route = null;   // quest finished or abandoned
     card.style.display = route ? "block" : "none";
     if (!route) { drawPath("mf-zone"); drawPath("mf-cont", null, null, true); return; }
@@ -1268,6 +1665,22 @@
     } else if (!me) {
       distEl.textContent = pos && pos.combat ? "In combat: position paused" : "Waiting for your position"; turnEl.textContent = "";
     } else {
+      var psM = psMatches(t);
+      if (psM) {
+        var pp = psPlan(psM, me);
+        zoneSegs = pp.zoneSegs; contSegs = pp.contSegs; steps = pp.steps;
+        var tot = pathYards(pp.ahead);
+        distEl.textContent = z.yw ? fmtDist(tot) : "";
+        var aimP = pp.ahead[pp.ahead.length - 1];
+        for (var ia = 1; ia < pp.ahead.length; ia++) if (Math.sqrt(zDist2(me, pp.ahead[ia])) >= 25) { aimP = pp.ahead[ia]; break; }
+        turnEl.textContent = pos.taxi ? "In flight" : (z.yw && tot < 25) ? "You're there" : aimP ? turnText((aimP[0] - me[0]) * (z.yw || 1), (aimP[1] - me[1]) * (z.yh || 1), pos.facing) : "";
+        if (pos.taxi) zoneSegs = [];
+        stepsEl.innerHTML = steps; stepsEl.style.display = steps ? "" : "none";
+        finishCard(card, t);
+        drawPath("mf-zone", zoneSegs, zoneMarks);
+        drawPath("mf-cont", contSegs, contMarks, true);
+        return;
+      }
       var nvA = suggest ? navAnswer() : null, viaPolestar = !!(nvA && nvA.status === "ok" && nvA.pts.length > 1);
       var fp = suggest && !viaPolestar ? flightPlan(me, t.z) : null, walkTo = t.z;
       if (fp && fp.az) {
@@ -1296,15 +1709,45 @@
       if (pos.taxi) zoneSegs = [];
     }
     stepsEl.innerHTML = steps; stepsEl.style.display = steps ? "" : "none";
-    var inp = state && canControl(), btnWp = card.querySelector('[data-act="wp"]'), btnTr = card.querySelector('[data-act="track"]');
-    btnWp.style.display = inp && caps2("W") && t ? "" : "none";
-    btnTr.style.display = inp && route.qid ? "" : "none";
+    finishCard(card, t);
     drawPath("mf-zone", zoneSegs, zoneMarks);
     drawPath("mf-cont", contSegs, contMarks, true);
   }
-  setInterval(function () { if (route && $("v-map").classList.contains("active")) { dashPhase = (dashPhase + 0.35) % 1000; drawRoute(); } }, 90);
+  function finishCard(card, t) {
+    var inp = state && canControl(), btnWp = card.querySelector('[data-act="wp"]'), btnTr = card.querySelector('[data-act="track"]');
+    var modeBtn = card.querySelector('[data-act="mode"]');
+    btnWp.style.display = inp && caps2("W") && t && route ? "" : "none";
+    btnTr.style.display = inp && route && route.qid ? "" : "none";
+    modeBtn.style.display = route ? "" : "none";
+  }
+  // No route picked on the Edge, but Polestar is guiding you somewhere: show its route
+  function drawPolestarOnly(card, r) {
+    card.style.display = "block";
+    var z = mapLevels.zone, me = playerZone();
+    card.querySelector(".rl").textContent = "Polestar: " + (r.label || "waypoint");
+    var distEl = card.querySelector(".dist"), turnEl = card.querySelector(".turn"), stepsEl = card.querySelector(".steps");
+    var pp = psPlan(r, me);
+    var zoneMarks = [pp.end], contMarks = [pp.end && z ? toCont(z.id, pp.end[0], pp.end[1]) : null];
+    if (!me) {
+      distEl.textContent = pos && pos.combat ? "In combat: position paused" : "Waiting for your position"; turnEl.textContent = "";
+    } else if (!pp.end && !pp.ahead.length) {
+      distEl.textContent = "Polestar's target is on another continent"; turnEl.textContent = "";
+    } else {
+      var tot = pathYards(pp.ahead);
+      distEl.textContent = z && z.yw ? fmtDist(tot) : "";
+      var aim = pp.ahead[pp.ahead.length - 1];
+      for (var i = 1; i < pp.ahead.length; i++) if (Math.sqrt(zDist2(me, pp.ahead[i])) >= 25) { aim = pp.ahead[i]; break; }
+      turnEl.textContent = pos.taxi ? "In flight" : (z.yw && tot < 25) ? "You're there" : aim ? turnText((aim[0] - me[0]) * (z.yw || 1), (aim[1] - me[1]) * (z.yh || 1), pos.facing) : "";
+    }
+    stepsEl.innerHTML = pp.steps; stepsEl.style.display = "";
+    finishCard(card, null);
+    drawPath("mf-zone", pos && pos.taxi ? [] : pp.zoneSegs, zoneMarks);
+    drawPath("mf-cont", pp.contSegs, contMarks, true);
+  }
+  setInterval(function () { if ((route || psRoute()) && $("v-map").classList.contains("active")) { dashPhase = (dashPhase + 0.35) % 1000; drawRoute(); } }, 90);
   $("route").addEventListener("click", function (e) {
-    var b = e.target.closest("[data-act]"); if (!b || !route) return;
+    var b = e.target.closest("[data-act]"); if (!b) return;
+    if (!route) { if (b.dataset.act === "clear") { psHidden = psKey(psRoute()); drawRoute(); } return; }
     if (b.dataset.act === "clear") { setRoute(null); return; }
     if (b.dataset.act === "mode") { suggest = !suggest; store("edgelink.suggest", suggest); pathKey = ""; drawRoute(); return; }
     if (b.dataset.act === "track") { trackQuest(route.qid); return; }
@@ -1333,10 +1776,119 @@
     sendGame("1" + qid, "Tracking " + (q ? q.title : "quest") + " in WoW");
   }
 
-  function layout() { fitBags(); fitGear(); if ($("v-map").classList.contains("active")) { drawArea(); drawRoute(); } }
+  function layout() { updateTurnIn(); fitBags(); fitGear(); if ($("v-map").classList.contains("active")) { drawArea(); drawRoute(); } }
   window.addEventListener("resize", layout);
 
   function setStatus(cls, text) { var s = $("status"); s.className = cls; s.textContent = text; }
+  /* Versions: the widget running now, the one imported into iCUE (if the companion's newer copy took over),
+     the companion app and the addon. They normally all match; a mismatch is flagged on the tag. */
+  var versions = { widget: window.__edgelinkWidgetVersion || "", imported: window.__edgelinkImported || "", companion: "", addon: "" };
+  function v3(v) { return String(v || "").split(".").slice(0, 3).join("."); }
+  function versionText() {
+    var t = "Widget " + (versions.widget || "?") + (versions.imported && versions.imported !== versions.widget ? " (imported " + versions.imported + ", updated by the companion)" : "");
+    t += "  \u2022  Companion " + (versions.companion ? v3(versions.companion) : "not running");
+    t += "  \u2022  Addon " + (versions.addon || (state ? "older than 1.7.1" : "waiting for WoW"));
+    return t;
+  }
+  function renderVersion() {
+    var el = $("ver"), w = v3(versions.widget), mism = false;
+    [versions.companion, versions.addon].forEach(function (v) { if (v && w && v3(v) !== w) mism = true; });
+    if (state && !versions.addon) mism = true;
+    var up = typeof updAvailable === "function" && updAvailable() && upd.releases[0].version !== store("edgelink.updSkip");
+    el.textContent = "v" + (w || "?") + (up ? " \u2191 " + upd.releases[0].version : mism ? " !" : "");
+    el.classList.toggle("mism", mism && !up);
+    el.classList.toggle("up", !!up);
+    el.title = versionText() + (mism ? "  \u2022  Versions differ: update or /reload so all parts match" : "");
+  }
+  $("ver").addEventListener("click", function () { openUpdate(); });
+
+  /* Updates: the companion checks GitHub releases; this panel shows what's new in every newer version
+     and lets you upgrade (the companion downloads the setup program, checks it and runs it silently). */
+  var upd = null, updOpen = false, updTimer = null;
+  function newerThan(a, b) {
+    a = String(a || "").split("."); b = String(b || "").split(".");
+    for (var i = 0; i < 3; i++) { var x = +a[i] || 0, y = +b[i] || 0; if (x !== y) return x > y; }
+    return false;
+  }
+  function updAvailable() { return !!(upd && upd.releases && upd.releases.length && upd.status !== "uptodate"); }
+  function updBusy() { return !!(upd && /^(downloading|verifying|installing|checking)$/.test(upd.status)); }
+  // Small, safe Markdown for release notes: headings, bullets, **bold**, `code`, [links] (text only)
+  function md(src) {
+    var out = [], list = false;
+    function inline(s) {
+      return esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+    }
+    String(src || "").replace(/\r/g, "").split("\n").forEach(function (line) {
+      var t = line.trim(), m;
+      if ((m = t.match(/^[-*+]\s+(.*)$/))) { if (!list) { out.push("<ul>"); list = true; } out.push("<li>" + inline(m[1]) + "</li>"); return; }
+      if (list) { out.push("</ul>"); list = false; }
+      if (!t) return;
+      if ((m = t.match(/^#{1,6}\s+(.*)$/))) out.push("<h5>" + inline(m[1]) + "</h5>");
+      else out.push("<p>" + inline(t) + "</p>");
+    });
+    if (list) out.push("</ul>");
+    return out.join("");
+  }
+  function fmtDate(iso) { var d = new Date(iso); return isNaN(d) ? "" : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); }
+  function renderUpdate() {
+    var el = $("upd"), u = upd || {}, avail = updAvailable(), top = avail ? u.releases[0] : null;
+    el.style.display = updOpen ? "block" : "none";
+    if (!updOpen) return;
+    el.querySelector(".ut").textContent = top ? "EdgeLink " + top.version + " is available" :
+      u.status === "error" ? "Could not check for updates" : u.status === "checking" ? "Checking for updates..." :
+      u.status === "unsupported" ? "Updates" : "EdgeLink is up to date";
+    el.querySelector(".uv").textContent = versionText() + (u.checkedAt ? "  \u2022  checked " + new Date(u.checkedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "");
+    el.querySelector(".un").innerHTML = avail ? u.releases.map(function (r) {
+      return '<div class="ur"><h4>' + esc(r.name && r.name.indexOf(r.version) >= 0 ? r.name : "EdgeLink " + r.version) + ' <small>' + esc(fmtDate(r.published)) + "</small></h4>" +
+        (md(r.notes) || '<p class="dim">No notes for this version.</p>') + "</div>";
+    }).join("") : (u.status === "unsupported" ? '<p class="dim">Updates need the EdgeLink app (not the PowerShell companion).</p>' : "");
+    var st = "";
+    if (u.status === "downloading") st = "Downloading " + (u.progress || 0) + "%...";
+    else if (u.status === "verifying") st = "Checking the download...";
+    else if (u.status === "installing") st = "Installing. EdgeLink restarts by itself; this panel reloads when it is back. Then /reload in WoW for the new addon.";
+    else if (u.status === "error") st = u.error || "Something went wrong.";
+    else if (avail && !u.canInstall) st = u.installHint || "";
+    var sEl = el.querySelector(".us"); sEl.textContent = st; sEl.className = "us" + (u.status === "error" ? " bad" : "");
+    var b = "";
+    if (avail && !updBusy()) {
+      b += u.canInstall ? '<button class="go" data-u="install">Upgrade now</button>' : '<button class="go" data-u="page">Show download link</button>';
+      b += '<button data-u="later">Later</button><button data-u="skip">Skip ' + esc(top.version) + "</button>";
+    } else if (!updBusy() && u.status !== "unsupported") b += '<button data-u="check">Check now</button><button data-u="close">Close</button>';
+    el.querySelector(".ua").innerHTML = b;
+  }
+  function openUpdate() { updOpen = true; renderUpdate(); if (!upd) fetchUpdate(); }
+  function fetchUpdate() {
+    fetch(BRIDGE + "/update", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (j) {
+      var before = upd && upd.status; upd = j; renderVersion(); renderUpdate();
+      // A new version found: show its notes once (unless skipped)
+      var top = updAvailable() ? upd.releases[0].version : null;
+      if (top && top !== store("edgelink.updSeen") && top !== store("edgelink.updSkip")) { store("edgelink.updSeen", top); openUpdate(); }
+      clearTimeout(updTimer);
+      updTimer = setTimeout(fetchUpdate, updBusy() ? 1000 : 5 * 60 * 1000);
+    }).catch(function () { clearTimeout(updTimer); updTimer = setTimeout(fetchUpdate, 60 * 1000); });
+  }
+  function updCommand(action, v) {
+    return fetch(BRIDGE + "/update/" + action + (v ? "?v=" + encodeURIComponent(v) : ""), { headers: { "X-EdgeLink-Cmd": "1" }, cache: "no-store" })
+      .then(function (r) { return r.json(); });
+  }
+  $("upd").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-u]");
+    if (!b) { if (e.target.id === "upd") { updOpen = false; renderUpdate(); } return; }
+    var a = b.dataset.u, top = updAvailable() ? upd.releases[0] : null;
+    if (a === "close" || a === "later") { updOpen = false; renderUpdate(); }
+    else if (a === "skip" && top) { store("edgelink.updSkip", top.version); updOpen = false; renderUpdate(); renderVersion(); }
+    else if (a === "page") { toast(upd.page || "github.com/ultimateunraid/EdgeLink/releases"); try { window.open(upd.page, "_blank"); } catch (x) { } }
+    else if (a === "check") {
+      updCommand("check").then(function () { upd = upd || {}; upd.status = "checking"; renderUpdate(); setTimeout(fetchUpdate, 2500); })
+        .catch(function () { toast("Companion offline", true); });
+    } else if (a === "install" && top) {
+      updCommand("install", top.version).then(function (j) {
+        if (!j.ok) { toast(j.error || "Could not start the update", true); return; }
+        upd.status = j.status || "downloading"; upd.progress = 0; renderUpdate(); fetchUpdate();
+      }).catch(function () { toast("Companion offline", true); });
+    }
+  });
+  setTimeout(fetchUpdate, 3000);
   function poll() {
     fetch(BRIDGE + "/state", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (j) {
       if (!j.wowFound) setStatus("warn", "WoW not running");
@@ -1344,6 +1896,13 @@
       else if (j.snapshotAgeSec > 10) setStatus("warn", "Paused " + Math.round(j.snapshotAgeSec) + "s");
       else setStatus("ok", "Live");
       if (!!j.inputAllowed !== inputAllowed) { inputAllowed = !!j.inputAllowed; if (state) renderHeader(); }
+      var cv = j.companionVersion || "", av = (j.data && j.data.addonVersion) || versions.addon;
+      if (cv !== versions.companion || av !== versions.addon) {
+        // The companion came back as a newer version (after an upgrade): reload, so the panel picks up its widget too
+        if (versions.companion && cv && newerThan(v3(cv), v3(versions.companion)) && newerThan(v3(cv), versions.widget)) { setTimeout(function () { location.reload(); }, 1500); }
+        versions.companion = cv; versions.addon = av; renderVersion();
+        if (updOpen) renderUpdate();
+      }
       var pk = JSON.stringify(j.pos);
       if (pk !== lastPosKey) { lastPosKey = pk; pos = j.pos; if (state) updatePos(); }
       if (j.data) {
@@ -1358,9 +1917,42 @@
       setStatus("bad", "Companion offline");
     }).then(function () { setTimeout(poll, POLL_MS); });
   }
-  renderBags(); renderGear(); renderQuests(); renderMap();
+  renderBags(); renderGear(); renderQuests(); renderMap(); renderVersion();
   poll();
-})();
+}
+</script>
+<script>
+  // Self-update: when the companion app on this PC carries a newer widget than the one imported into iCUE,
+  // load that one instead, so updating EdgeLink updates the panel without importing it again.
+  (function () {
+    var WIDGET_VERSION = "1.8.0";   // keep in step with manifest.json
+    window.__edgelinkWidgetVersion = WIDGET_VERSION;   // shown on the version tag
+    var started = false;
+    function start() { if (!started) { started = true; edgeLinkApp(); } }
+    var params = new URLSearchParams(location.search);
+    var served = location.protocol.indexOf("http") === 0 && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+    if (window.__edgelinkLive || served || params.get("noupdate")) { start(); return; }
+    var BRIDGE = params.get("bridge") || "http://localhost:8787";
+    function newer(a, b) {
+      a = String(a).split("."); b = String(b).split(".");
+      for (var i = 0; i < 3; i++) { var x = +a[i] || 0, y = +b[i] || 0; if (x !== y) return x > y; }
+      return false;
+    }
+    var timer = setTimeout(start, 2500);   // companion not answering: run what was imported
+    function fallback() { clearTimeout(timer); start(); }
+    fetch(BRIDGE + "/manifest.json", { cache: "no-store" }).then(function (r) { return r.ok ? r.json() : null; }).then(function (m) {
+      if (!m || !newer(m.version, WIDGET_VERSION)) { fallback(); return; }
+      return fetch(BRIDGE + "/", { cache: "no-store" }).then(function (r) { return r.text(); }).then(function (html) {
+        if (started || html.indexOf("edgeLinkApp") < 0) { fallback(); return; }
+        clearTimeout(timer);
+        // (the tag name is split so iCUE's import check does not mistake this line for the page head)
+        var tag = "<" + "head>";
+        html = html.replace(new RegExp(tag, "i"), tag + '<base href="' + BRIDGE + '/"><script>window.__edgelinkLive = true; window.__edgelinkImported = "' +
+          WIDGET_VERSION + '";<\/script>');
+        document.open(); document.write(html); document.close();
+      });
+    }).catch(fallback);
+  })();
 </script>
 <script>
   // iCUE lifecycle hooks. The widget polls the companion on its own, so nothing to do here.
