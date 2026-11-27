@@ -12,35 +12,37 @@ on:
         type: boolean
         default: false
 
+# Nothing gets write access or an Azure token by default; each job asks only for what it needs.
 permissions:
-  contents: write   # publishing a GitHub Release on v* tags (other events only read)
-  id-token: write   # Azure login with OpenID Connect (no stored Azure password) for code signing
+  contents: read
 
 # Code signing (Azure Artifact Signing) runs on v* tags, or on a manual run with "sign" ticked, once these are set
 # in the repository settings (Settings > Secrets and variables > Actions):
 #   variables: AZURE_SIGNING_ENDPOINT (e.g. https://eus.codesigning.azure.net/), AZURE_SIGNING_ACCOUNT, AZURE_CERT_PROFILE
 #   secrets:   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
-# Until AZURE_SIGNING_ACCOUNT is set, tagged releases are published unsigned (with a warning).
-env:
-  SIGN: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.sign == true) && vars.AZURE_SIGNING_ACCOUNT != '' }}
-
+# A v* tag without signing set up FAILS, unless the variable ALLOW_UNSIGNED_RELEASE is 'true'.
+# (Signed copies of EdgeLink never install an unsigned update, and unsigned copies never self-update.)
+#
+# Job layout (why it is split): the jobs that hold the Azure token (id-token: write) run ONLY pinned Microsoft
+# actions on files built elsewhere. Tests, pip, Node, choco and the build scripts never see the token, so a
+# compromised dependency cannot sign anything with the EdgeLink certificate.
+#   build -> sign-exe -> package -> sign-setup -> release
+# All actions are pinned to a commit SHA (the comment shows the tag it came from).
 jobs:
   build:
     runs-on: windows-2025
-    # Signing runs in the "release" environment: Azure trusts the token subject
-    # repo:ultimateunraid@66378847/EdgeLink@1457993618:environment:release (one federated credential for every tag),
-    # and the environment's rules decide which tags/branches may use it. Other builds run without an environment.
-    environment: ${{ ((startsWith(github.ref, 'refs/tags/v') || inputs.sign == true) && vars.AZURE_SIGNING_ACCOUNT != '') && 'release' || '' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
 
       - name: Addon tests
         run: |
-          pip install lupa pillow
+          pip install lupa==2.8 pillow==13.0.0
           python tests/roundtrip.py
           python tests/input_test.py
 
@@ -48,7 +50,7 @@ jobs:
         shell: pwsh
         run: powershell -NoProfile -ExecutionPolicy Bypass -File tests/update_test.ps1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -56,18 +58,36 @@ jobs:
         shell: cmd
         run: companion\build.cmd
 
-      - name: Azure login (for code signing)
-        if: env.SIGN == 'true'
-        uses: azure/login@v3
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: EdgeLink-unsigned
+          path: dist/EdgeLink/
+          if-no-files-found: error
+
+  # Signs EdgeLink.exe before the installer is built, so the setup program carries the signed copy.
+  sign-exe:
+    needs: build
+    if: (startsWith(github.ref, 'refs/tags/v') || inputs.sign == true) && vars.AZURE_SIGNING_ACCOUNT != ''
+    runs-on: windows-2025
+    # Azure trusts the token subject repo:ultimateunraid@66378847/EdgeLink@1457993618:environment:release.
+    # Protect the environment: deployment rule "tags v*" (plus your manual runs), required reviewer = you.
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: EdgeLink-unsigned
+          path: dist/EdgeLink
+
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # Sign EdgeLink.exe before the installer is built, so the setup program carries the signed copy
       - name: Sign EdgeLink.exe
-        if: env.SIGN == 'true'
-        uses: azure/artifact-signing-action@v2
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
           endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
           signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
@@ -85,7 +105,28 @@ jobs:
           exclude-azure-powershell-credential: true
           exclude-azure-developer-cli-credential: true
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: EdgeLink-signed
+          path: dist/EdgeLink/
+          if-no-files-found: error
+
+  package:
+    needs: [build, sign-exe]
+    # runs after sign-exe when signing, or straight after build when not
+    if: always() && needs.build.result == 'success' && (needs.sign-exe.result == 'success' || needs.sign-exe.result == 'skipped')
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.sign-exe.result == 'success' && 'EdgeLink-signed' || 'EdgeLink-unsigned' }}
+          path: dist/EdgeLink
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: EdgeLink
           path: dist/EdgeLink/
@@ -99,9 +140,38 @@ jobs:
           & $iscc installer\EdgeLink.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: EdgeLink-Setup-unsigned
+          path: dist/release/EdgeLink-Setup-*.exe
+          if-no-files-found: error
+
+  sign-setup:
+    needs: package
+    if: (startsWith(github.ref, 'refs/tags/v') || inputs.sign == true) && vars.AZURE_SIGNING_ACCOUNT != ''
+    runs-on: windows-2025
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: EdgeLink-Setup-unsigned
+          path: dist/release
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: EdgeLink
+          path: dist/EdgeLink
+
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Sign the setup program
-        if: env.SIGN == 'true'
-        uses: azure/artifact-signing-action@v2
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
           endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
           signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
@@ -121,9 +191,8 @@ jobs:
           exclude-azure-developer-cli-credential: true
 
       # Both files must carry a valid, timestamped signature from the same publisher before anything is released.
-      # (EdgeLink's updater also refuses an update whose publisher differs from the running copy's.)
+      # (EdgeLink's updater refuses an update that is unsigned or signed by a different publisher.)
       - name: Check signatures
-        if: env.SIGN == 'true'
         shell: pwsh
         run: |
           $files = @('dist/EdgeLink/EdgeLink.exe') + (Get-ChildItem dist/release/EdgeLink-Setup-*.exe).FullName
@@ -137,26 +206,48 @@ jobs:
           }
           if (($subjects | Select-Object -Unique).Count -ne 1) { Write-Error "signers differ: $($subjects -join ' | ')"; exit 1 }
 
-      - name: Unsigned build warning
-        if: startsWith(github.ref, 'refs/tags/v') && env.SIGN != 'true'
-        run: echo "::warning::This release is NOT code-signed. Set AZURE_SIGNING_ACCOUNT and the other signing settings to sign releases."
-
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: EdgeLink-Setup
           path: dist/release/EdgeLink-Setup-*.exe
           if-no-files-found: error
 
-      # On a version tag: publish a GitHub Release with the setup program. Its notes are this version's
-      # section of CHANGELOG.md; EdgeLink shows them on the Edge before offering the upgrade, and installs
-      # the setup program from this release (GitHub publishes its SHA-256, which EdgeLink checks).
+  # On a version tag: publish a GitHub Release with the setup program. Its notes are this version's
+  # section of CHANGELOG.md; EdgeLink shows them on the Edge before offering the upgrade, and installs
+  # the setup program from this release (checking GitHub's SHA-256 and the code signature).
+  release:
+    needs: [package, sign-setup]
+    if: always() && startsWith(github.ref, 'refs/tags/v') && needs.package.result == 'success' && (needs.sign-setup.result == 'success' || needs.sign-setup.result == 'skipped')
+    runs-on: windows-2025
+    permissions:
+      contents: write
+    steps:
+      - name: Refuse unsigned releases
+        if: needs.sign-setup.result != 'success' && vars.ALLOW_UNSIGNED_RELEASE != 'true'
+        run: |
+          echo "::error::Signing is not set up (AZURE_SIGNING_ACCOUNT), so this tag was not released. Set ALLOW_UNSIGNED_RELEASE=true to publish unsigned on purpose."
+          exit 1
+
+      - name: Unsigned release warning
+        if: needs.sign-setup.result != 'success'
+        run: echo "::warning::This release is NOT code-signed. Installed copies will only be told about it, not update themselves."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.sign-setup.result == 'success' && 'EdgeLink-Setup' || 'EdgeLink-Setup-unsigned' }}
+          path: dist/release
+
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
         run: |
-          $tag = '${{ github.ref_name }}'
+          $tag = $env:TAG
           $ver = $tag.TrimStart('v')
           $lines = Get-Content CHANGELOG.md
           $start = ($lines | Select-String -Pattern "^##\s+\[?v?$([regex]::Escape($ver))\]?(\s|$)" | Select-Object -First 1).LineNumber
@@ -165,5 +256,5 @@ jobs:
           for ($i = $start; $i -lt $lines.Count; $i++) { if ($lines[$i] -match '^##\s') { break }; $notes += $lines[$i] }
           ($notes -join "`n").Trim() | Set-Content -Encoding utf8 release-notes.md
           $setup = Get-ChildItem dist/release/EdgeLink-Setup-*.exe | Select-Object -First 1
-          gh release create $tag $setup.FullName --title "EdgeLink $ver" --notes-file release-notes.md
+          gh release create $tag $setup.FullName --repo $env:GITHUB_REPOSITORY --title "EdgeLink $ver" --notes-file release-notes.md
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

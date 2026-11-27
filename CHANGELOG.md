@@ -2,6 +2,18 @@
 
 Each version's section becomes the notes of its GitHub release, and EdgeLink shows those notes on the Edge before you upgrade. Keep the heading format `## <version>`.
 
+## Unreleased
+
+### Security
+- **Updates fail closed:** EdgeLink installs an update only when GitHub published its SHA-256, the setup program is code-signed, and it is signed by the same publisher as the running copy (revocation is checked too). Unsigned copies of EdgeLink no longer install updates themselves; they open the download page instead.
+- **You approve every upgrade:** tapping **Upgrade now** on the Edge opens a confirmation on your main screen. Nothing downloads until you click Yes.
+- **Local bridge hardened:** EdgeLink only answers requests addressed to `localhost`, `127.0.0.1` or `[::1]` on its own port (blocks DNS-rebinding attacks), and other websites can no longer read your character data.
+- **Removed `UpdateToken`** (the repository is public). `UpdateFeed` must now be an `https` address.
+- **Release builds:** signing runs in separate jobs that never execute test or build code, all GitHub Actions are pinned, and a version tag fails instead of publishing unsigned unless `ALLOW_UNSIGNED_RELEASE` is set.
+
+### Note for existing installs
+Copies installed from unsigned releases cannot update themselves any more. Install the first signed release by hand once; updates after that are automatic again.
+
 ## 1.8.0
 
 ### New

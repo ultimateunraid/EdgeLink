@@ -92,7 +92,7 @@ namespace EdgeLink
         public bool Icons = true;
         public bool CheckUpdates = true;
         public int IntervalMs = 33;
-        public string UpdateFeed, UpdateToken;   // testing / private repo only; normally empty
+        public string UpdateFeed;                // testing / mirror only (https); normally empty
 
         public static Settings Load()
         {
@@ -113,7 +113,6 @@ namespace EdgeLink
                 else if (k == "checkupdates") s.CheckUpdates = !(v.Equals("false", StringComparison.OrdinalIgnoreCase) || v == "0");
                 else if (k == "intervalms" && int.TryParse(v, out n) && n >= 10 && n <= 1000) s.IntervalMs = n;
                 else if (k == "updatefeed" && v.Length > 0) s.UpdateFeed = v;
-                else if (k == "updatetoken" && v.Length > 0) s.UpdateToken = v;
             }
             return s;
         }
@@ -141,6 +140,7 @@ namespace EdgeLink
 
             bridge = new Bridge();
             bridge.AppVersion = Application.ProductVersion;
+            bridge.Log = App.Log;
             bridge.Port = settings.Port;
             bridge.ProcessNames = settings.ProcessNames;
             bridge.IntervalMs = settings.IntervalMs;
@@ -157,7 +157,8 @@ namespace EdgeLink
             updater = new Updater
             {
                 Current = new Version(Application.ProductVersion), ExeDir = App.ExeDir, DataDir = App.DataDir,
-                Feed = settings.UpdateFeed ?? Updater.DefaultFeed, Token = settings.UpdateToken, Log = App.Log
+                Feed = settings.UpdateFeed ?? Updater.DefaultFeed, Log = App.Log,
+                ConfirmInstall = ConfirmUpdate
             };
             bridge.UpdateJson = updater.StateJson;
             bridge.UpdateAction = delegate (string action, string version)
@@ -238,7 +239,19 @@ namespace EdgeLink
         // Kept for the existing test: "v1.7.0" newer than the running 1.6.0.0?
         internal static bool IsNewer(string tag, Version current) { return Updater.IsNewer(tag, current); }
 
-        // Tray menu: show what's new, then install (or open the download page for a copy not installed by setup)
+        // Every install, whether started from the widget or the tray, is approved here on the desktop.
+        // (Web pages can reach the local bridge, so a request from the widget is never enough by itself.)
+        static bool ConfirmUpdate(Updater.Release r)
+        {
+            string notes = (r.Body ?? "").Trim();
+            if (notes.Length > 1500) notes = notes.Substring(0, 1500) + "...";
+            return MessageBox.Show("Install EdgeLink " + r.Tag + "?\n\n" + notes +
+                "\n\nEdgeLink downloads the setup program from GitHub, checks its checksum and code signature, then installs it and restarts. /reload in WoW afterwards.",
+                "EdgeLink update", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2,
+                MessageBoxOptions.DefaultDesktopOnly) == DialogResult.Yes;
+        }
+
+        // Tray menu: install (the updater asks for confirmation), or open the download page for a copy that cannot self-update
         void OfferUpdate()
         {
             Updater.Release r = updateRelease;
@@ -251,8 +264,6 @@ namespace EdgeLink
                     MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes) OpenUrl(r.HtmlUrl);
                 return;
             }
-            if (MessageBox.Show("EdgeLink " + r.Tag + " is available.\n\n" + notes + "\n\nDownload and install it now? EdgeLink restarts by itself; /reload in WoW afterwards.",
-                "EdgeLink update", MessageBoxButtons.YesNo, MessageBoxIcon.Information) != DialogResult.Yes) return;
             App.Log("Update from tray: " + updater.StartInstall(r.Version));
         }
 

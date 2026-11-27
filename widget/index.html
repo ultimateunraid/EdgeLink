@@ -1811,7 +1811,7 @@ function edgeLinkApp() {
     return false;
   }
   function updAvailable() { return !!(upd && upd.releases && upd.releases.length && upd.status !== "uptodate"); }
-  function updBusy() { return !!(upd && /^(downloading|verifying|installing|checking)$/.test(upd.status)); }
+  function updBusy() { return !!(upd && /^(confirming|downloading|verifying|installing|checking)$/.test(upd.status)); }
   // Small, safe Markdown for release notes: headings, bullets, **bold**, `code`, [links] (text only)
   function md(src) {
     var out = [], list = false;
@@ -1843,7 +1843,8 @@ function edgeLinkApp() {
         (md(r.notes) || '<p class="dim">No notes for this version.</p>') + "</div>";
     }).join("") : (u.status === "unsupported" ? '<p class="dim">Updates need the EdgeLink app (not the PowerShell companion).</p>' : "");
     var st = "";
-    if (u.status === "downloading") st = "Downloading " + (u.progress || 0) + "%...";
+    if (u.status === "confirming") st = "Approve the upgrade in the EdgeLink window on your main screen.";
+    else if (u.status === "downloading") st = "Downloading " + (u.progress || 0) + "%...";
     else if (u.status === "verifying") st = "Checking the download...";
     else if (u.status === "installing") st = "Installing. EdgeLink restarts by itself; this panel reloads when it is back. Then /reload in WoW for the new addon.";
     else if (u.status === "error") st = u.error || "Something went wrong.";
@@ -1884,7 +1885,7 @@ function edgeLinkApp() {
     } else if (a === "install" && top) {
       updCommand("install", top.version).then(function (j) {
         if (!j.ok) { toast(j.error || "Could not start the update", true); return; }
-        upd.status = j.status || "downloading"; upd.progress = 0; renderUpdate(); fetchUpdate();
+        upd.status = j.status || "confirming"; upd.progress = 0; renderUpdate(); fetchUpdate();
       }).catch(function () { toast("Companion offline", true); });
     }
   });
