@@ -1,0 +1,7 @@
+## Interface: 16001
+## AllowLoadGameType: camelot
+## Title: EdgeLink Native (Preview)
+## Notes: Native dashboard prototype; no external bridge.
+## Version: 2.0.0-alpha
+## SavedVariables: EdgeLinkNativeDB
+Core.lua
