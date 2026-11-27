@@ -2,7 +2,7 @@
 
 Each version's section becomes the notes of its GitHub release, and EdgeLink shows those notes on the Edge before you upgrade. Keep the heading format `## <version>`.
 
-## Unreleased
+## 1.9.0
 
 ### Security
 - **Updates fail closed:** EdgeLink installs an update only when GitHub published its SHA-256, the setup program is code-signed, and it is signed by the same publisher as the running copy (revocation is checked too). Unsigned copies of EdgeLink no longer install updates themselves; they open the download page instead.
