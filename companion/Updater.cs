@@ -24,20 +24,24 @@ namespace EdgeLink
         public const string ReleasesPage = "https://github.com/ultimateunraid/EdgeLink/releases";
         const string InstallerAppId = "{6C0B6A0E-7C1F-4E0B-9D4E-ED6E11A0C5F1}_is1";
 
-        public string Feed = DefaultFeed;      // UpdateFeed= in EdgeLink.ini (testing or a mirror)
-        public string Token;                   // UpdateToken= in EdgeLink.ini (only while the repo is private)
+        public string Feed = DefaultFeed;      // UpdateFeed= in EdgeLink.ini (testing or a mirror; https only, or loopback for tests)
         public Version Current;
         public string ExeDir;
         public string DataDir;
         public Action<string> Log = delegate { };
         public Action<Release> OnAvailable = delegate { };   // called once per newly seen version
         public Action BeforeInstall = delegate { };          // the tray app exits after this
-        public bool TestMode;                                // tests only: treat this folder as installed
+        // The user must approve every install in a native dialog (web pages can reach the local bridge,
+        // so a request from the widget alone is never enough). Return true to go ahead.
+        public Func<Release, bool> ConfirmInstall = delegate { return false; };
+        internal bool TestMode;                              // tests only: treat this folder as installed and signed
+        // Authenticode check (setup, running exe) -> null when OK. Tests replace it; release builds use Signature.CheckUpdate.
+        internal Func<string, string, string> VerifySignature = Signature.CheckUpdate;
 
         public class Release
         {
             public string Tag, Version, Name, Body, Published, HtmlUrl;
-            public string AssetName, AssetUrl, AssetApiUrl, Sha256;
+            public string AssetName, AssetUrl, Sha256;
             public long Size;
             public bool Prerelease;
         }
@@ -103,7 +107,6 @@ namespace EdgeLink
                     if (!name.StartsWith("EdgeLink-Setup-", StringComparison.OrdinalIgnoreCase) || !name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) continue;
                     rel.AssetName = name;
                     rel.AssetUrl = Str(ad, "browser_download_url");
-                    rel.AssetApiUrl = Str(ad, "url");
                     long size; long.TryParse(Str(ad, "size"), out size); rel.Size = size;
                     string digest = Str(ad, "digest");               // "sha256:<hex>" on assets uploaded since mid-2025
                     if (digest != null && digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)) rel.Sha256 = digest.Substring(7).ToLowerInvariant();
@@ -115,14 +118,21 @@ namespace EdgeLink
             return list;
         }
 
-        // Downloads only from GitHub (or from the host of a custom feed set in EdgeLink.ini)
+        // Downloads only from GitHub (or from the host of a custom feed set in EdgeLink.ini).
+        // Everything is https; plain http is accepted only for a loopback test feed.
         public static bool AllowedUrl(string url, string feed)
         {
             Uri u; if (!Uri.TryCreate(url ?? "", UriKind.Absolute, out u)) return false;
             if (feed == null || feed == DefaultFeed)
                 return u.Scheme == "https" && (u.Host == "github.com" || u.Host == "api.github.com");
-            Uri f; if (!Uri.TryCreate(feed, UriKind.Absolute, out f)) return false;
+            Uri f; if (!AllowedFeed(feed, out f)) return false;
             return u.Scheme == f.Scheme && u.Host == f.Host && u.Port == f.Port;
+        }
+
+        public static bool AllowedFeed(string feed, out Uri f)
+        {
+            if (!Uri.TryCreate(feed ?? "", UriKind.Absolute, out f)) return false;
+            return f.Scheme == "https" || (f.Scheme == "http" && f.IsLoopback);
         }
 
         // ---- state for the widget ------------------------------------------------------------------
@@ -140,7 +150,7 @@ namespace EdgeLink
                 sb.Append(",\"progress\":").Append(progress);
                 sb.Append(",\"checkedAt\":").Append(J(checkedAt == DateTime.MinValue ? null : checkedAt.ToUniversalTime().ToString("o")));
                 sb.Append(",\"canInstall\":").Append(CanInstall() ? "true" : "false");
-                sb.Append(",\"installHint\":").Append(J(CanInstall() ? null : "This copy of EdgeLink was not installed by the setup program, so updates open the download page instead."));
+                sb.Append(",\"installHint\":").Append(J(InstallHint()));
                 sb.Append(",\"page\":").Append(J(newer.Count > 0 ? newer[0].HtmlUrl : ReleasesPage));
                 sb.Append(",\"releases\":[");
                 for (int i = 0; i < newer.Count; i++)
@@ -157,8 +167,26 @@ namespace EdgeLink
             }
         }
 
-        // Installed by the setup program into this folder? (Then the setup can update it in place.)
-        public bool CanInstall()
+        // Updates install themselves only for a signed copy that the setup program installed into this folder.
+        // Anything else (development builds, unsigned releases, copied folders) just opens the download page.
+        public bool CanInstall() { return InstalledBySetup() && RunningSigned(); }
+
+        string InstallHint()
+        {
+            if (!InstalledBySetup()) return "This copy of EdgeLink was not installed by the setup program, so updates open the download page instead.";
+            if (!RunningSigned()) return "This copy of EdgeLink is not code-signed, so it cannot check updates itself. Download the new version from GitHub instead.";
+            return null;
+        }
+
+        int runningSigned = -1;                // cached: the running exe does not change while it runs
+        bool RunningSigned()
+        {
+            if (TestMode) return true;
+            if (runningSigned < 0) runningSigned = Signature.Publisher(Path.Combine(ExeDir, "EdgeLink.exe")) != null ? 1 : 0;
+            return runningSigned == 1;
+        }
+
+        bool InstalledBySetup()
         {
             if (TestMode) return true;
             try
@@ -174,7 +202,8 @@ namespace EdgeLink
         }
 
         void Set(string s, string err, int pct) { lock (gate) { status = s; error = err; progress = pct; } }
-        bool Busy() { lock (gate) { return status == "checking" || status == "downloading" || status == "verifying" || status == "installing"; } }
+        bool Busy() { lock (gate) { return status == "checking" || status == "confirming" || status == "downloading" || status == "verifying" || status == "installing"; } }
+        bool Installing() { return status == "confirming" || status == "downloading" || status == "verifying" || status == "installing"; }
 
         // ---- check ---------------------------------------------------------------------------------
 
@@ -186,7 +215,6 @@ namespace EdgeLink
             req.Accept = accept;
             req.Timeout = 20000;
             req.ReadWriteTimeout = 60000;
-            if (!string.IsNullOrEmpty(Token) && new Uri(url).Host.EndsWith("github.com")) req.Headers["Authorization"] = "Bearer " + Token;
             return req;
         }
 
@@ -196,6 +224,8 @@ namespace EdgeLink
             Set("checking", null, 0);
             try
             {
+                Uri feedUri;
+                if (Feed != DefaultFeed && !AllowedFeed(Feed, out feedUri)) throw new Exception("UpdateFeed must be an https address");
                 string body;
                 using (WebResponse resp = Request(Feed, "application/vnd.github+json").GetResponse())
                 using (StreamReader sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
@@ -228,29 +258,38 @@ namespace EdgeLink
 
         // ---- install -------------------------------------------------------------------------------
 
-        // Starts the download and install on a worker thread. Returns a JSON answer for /update/install.
+        // Asks the user (ConfirmInstall, a native dialog), then downloads and installs on a worker thread.
+        // Returns a JSON answer for /update/install straight away; the widget follows progress through /update.
         public string StartInstall(string version)
         {
             Release r;
             lock (gate)
             {
-                if (status == "downloading" || status == "verifying" || status == "installing") return "{\"ok\":true,\"status\":" + J(status) + "}";
+                if (Installing()) return "{\"ok\":true,\"status\":" + J(status) + "}";
                 r = newer.FirstOrDefault();
                 if (r == null) return "{\"ok\":false,\"error\":\"No update is available.\"}";
                 if (!string.IsNullOrEmpty(version) && version != r.Version) return "{\"ok\":false,\"error\":\"That version is no longer the latest; check again.\"}";
             }
-            if (!CanInstall()) return "{\"ok\":false,\"error\":\"This copy was not installed by the setup program. Download the update from GitHub instead.\"}";
-            Set("downloading", null, 0);
-            Thread t = new Thread(delegate () { Install(r); }) { IsBackground = true, Name = "EdgeLink update" };
+            if (!CanInstall()) return "{\"ok\":false,\"error\":" + J(InstallHint()) + "}";
+            Set("confirming", null, 0);
+            Thread t = new Thread(delegate ()
+            {
+                bool yes = false;
+                try { yes = ConfirmInstall(r); } catch (Exception ex) { Log("Update: confirmation failed: " + ex.Message); }
+                if (!yes) { Log("Update: " + r.Tag + " not approved"); Set("available", null, 0); return; }
+                Set("downloading", null, 0);
+                Install(r);
+            }) { IsBackground = true, Name = "EdgeLink update" };
+            t.SetApartmentState(ApartmentState.STA);   // the confirmation is a MessageBox
             t.Start();
-            return "{\"ok\":true,\"status\":\"downloading\"}";
+            return "{\"ok\":true,\"status\":\"confirming\"}";
         }
 
         void Install(Release r)
         {
             try
             {
-                string url = !string.IsNullOrEmpty(Token) && r.AssetApiUrl != null ? r.AssetApiUrl : r.AssetUrl;
+                string url = r.AssetUrl;
                 if (!AllowedUrl(url, Feed)) throw new Exception("refusing to download from " + url);
                 string dir = Path.Combine(DataDir, "updates");
                 Directory.CreateDirectory(dir);
@@ -258,7 +297,7 @@ namespace EdgeLink
                 string file = Path.Combine(dir, Path.GetFileName(r.AssetName));
                 string part = file + ".part";
 
-                HttpWebRequest req = Request(url, url == r.AssetApiUrl ? "application/octet-stream" : "*/*");
+                HttpWebRequest req = Request(url, "*/*");
                 req.AllowAutoRedirect = true;    // GitHub redirects release downloads to its file storage
                 using (WebResponse resp = req.GetResponse())
                 using (Stream src = resp.GetResponseStream())
@@ -274,19 +313,18 @@ namespace EdgeLink
                     }
                 }
                 Set("verifying", null, 100);
-                if (r.Size > 0 && new FileInfo(part).Length != r.Size) throw new Exception("download is incomplete (size does not match GitHub)");
-                if (r.Sha256 != null)
-                {
-                    string hash;
-                    using (FileStream fs = File.OpenRead(part)) using (SHA256 sha = SHA256.Create())
-                        hash = BitConverter.ToString(sha.ComputeHash(fs)).Replace("-", "").ToLowerInvariant();
-                    if (hash != r.Sha256) throw new Exception("download does not match the checksum GitHub published");
-                }
-                else Log("Update: GitHub gave no checksum for " + r.AssetName + "; size check only.");
+                // Fail closed: no published size or checksum, no install. (The checksum catches a damaged or swapped
+                // download; the Authenticode check below is what proves the setup program is really ours.)
+                if (r.Size <= 0 || new FileInfo(part).Length != r.Size) throw new Exception("download is incomplete (size does not match GitHub)");
+                if (string.IsNullOrEmpty(r.Sha256)) throw new Exception("GitHub published no checksum for " + r.AssetName + ", so it cannot be verified. Download it from GitHub instead.");
+                string hash;
+                using (FileStream fs = File.OpenRead(part)) using (SHA256 sha = SHA256.Create())
+                    hash = BitConverter.ToString(sha.ComputeHash(fs)).Replace("-", "").ToLowerInvariant();
+                if (hash != r.Sha256) throw new Exception("download does not match the checksum GitHub published");
                 if (File.Exists(file)) File.Delete(file);
                 File.Move(part, file);
 
-                string why = Signature.CheckUpdate(file, Path.Combine(ExeDir, "EdgeLink.exe"));
+                string why = VerifySignature(file, Path.Combine(ExeDir, "EdgeLink.exe"));
                 if (why != null) throw new Exception(why);
 
                 Set("installing", null, 100);
@@ -306,13 +344,14 @@ namespace EdgeLink
         }
     }
 
-    // Authenticode rules for updates: once EdgeLink itself is signed, an update must be signed by the same publisher.
+    // Authenticode rules for updates (fail closed): the running EdgeLink and the setup program must both carry a valid,
+    // trusted, unrevoked signature from the same publisher. An unsigned EdgeLink never installs updates by itself.
     public static class Signature
     {
         public static string CheckUpdate(string setupPath, string runningExe)
         {
             string mine = Publisher(runningExe);
-            if (mine == null) return null;                       // unsigned build (development): nothing to compare
+            if (mine == null) return "this copy of EdgeLink is not code-signed, so it cannot verify updates; download the new version from GitHub";
             if (!Trusted(setupPath)) return "the update is not signed with a trusted certificate";
             string theirs = Publisher(setupPath);
             if (theirs != mine) return "the update is signed by a different publisher (" + (theirs ?? "none") + ")";
@@ -349,7 +388,8 @@ namespace EdgeLink
             try
             {
                 Marshal.StructureToPtr(fi, pfi, false);
-                TrustData td = new TrustData { cbStruct = Marshal.SizeOf(typeof(TrustData)), ui = 2 /* none */, revocation = 0, choice = 1 /* file */, file = pfi, action = 0 };
+                // WTD_REVOKE_WHOLECHAIN + WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT: a revoked signing certificate fails the check
+                TrustData td = new TrustData { cbStruct = Marshal.SizeOf(typeof(TrustData)), ui = 2 /* none */, revocation = 1, choice = 1 /* file */, file = pfi, action = 0, provFlags = 0x80 };
                 ptd = Marshal.AllocHGlobal(Marshal.SizeOf(td));
                 Marshal.StructureToPtr(td, ptd, false);
                 return WinVerifyTrust(IntPtr.Zero, action, ptd) == 0;      // state action IGNORE: nothing to close

@@ -795,6 +795,7 @@ namespace EdgeLink
         public int IntervalMs = 33;
         public string WidgetDir;
         public bool Verbose;
+        public Action<string> Log = delegate { };
         public IconCache Icons;
         public MapCache Maps;
 
@@ -896,7 +897,42 @@ namespace EdgeLink
             Native.Key(vk, false); Thread.Sleep(12);
         }
 
+        // DNS rebinding guard: a browser only sends one of these Host values when it really means this computer.
+        // (A rebound attacker domain arrives with its own name in Host, and same-origin GETs carry no Origin.)
+        internal static bool AllowedHost(string host, int port)
+        {
+            if (string.IsNullOrEmpty(host)) return false;
+            host = host.Trim().ToLowerInvariant();
+            string name = host, p = null;
+            if (host.StartsWith("["))
+            {
+                int close = host.IndexOf(']');
+                if (close < 0) return false;
+                name = host.Substring(0, close + 1);
+                if (close + 1 < host.Length) { if (host[close + 1] != ':') return false; p = host.Substring(close + 2); }
+            }
+            else
+            {
+                int c = host.IndexOf(':');
+                if (c >= 0) { name = host.Substring(0, c); p = host.Substring(c + 1); }
+            }
+            if (name != "localhost" && name != "127.0.0.1" && name != "[::1]") return false;
+            int n;
+            return p == null ? false : int.TryParse(p, NumberStyles.None, CultureInfo.InvariantCulture, out n) && n == port;
+        }
+
+        // Each distinct Origin is logged once, so the value iCUE really sends can be read from edgelink.log
+        readonly HashSet<string> originsSeen = new HashSet<string>();
+        void NoteOrigin(string origin, string path)
+        {
+            string key = origin ?? "(none)";
+            lock (originsSeen) { if (originsSeen.Count > 50 || !originsSeen.Add(key)) return; }
+            Log("Bridge: first request from Origin " + key + " (" + path + ")" + (TrustedOrigin(origin) ? "" : " - not trusted"));
+        }
+
         // Only the widget may send commands: the companion's own pages, or iCUE (which loads widgets from a non-web origin).
+        // TODO(security): "null" is also what a sandboxed iframe on any website sends. Once edgelink.log shows the Origin
+        // iCUE uses, trust only that. Until then installs are approved in a native dialog and /cmd stays opt-in.
         static bool TrustedOrigin(string origin)
         {
             if (origin == null || origin == "null") return true;
@@ -1129,10 +1165,16 @@ namespace EdgeLink
             bool cmdHeader = Header(head, "X-EdgeLink-Cmd") != null;
             string path;
             try { path = Uri.UnescapeDataString(target); } catch { path = "/"; }
+            NoteOrigin(origin, path);
+            bool trusted = TrustedOrigin(origin);
 
             byte[] body; int status = 200; string type = "application/json; charset=utf-8";
             string extraHeaders = "";
-            if (method == "OPTIONS")
+            if (!AllowedHost(Header(head, "Host"), Port))
+            {
+                status = 421; body = Encoding.UTF8.GetBytes("{\"error\":\"wrong host\"}");
+            }
+            else if (method == "OPTIONS")
             {
                 body = new byte[0]; status = 204;
                 if ((path == "/cmd" || path.StartsWith("/update/")) && TrustedOrigin(origin)) extraHeaders = "Access-Control-Allow-Headers: X-EdgeLink-Cmd\r\n";
@@ -1192,13 +1234,18 @@ namespace EdgeLink
                     status = 404; body = Encoding.UTF8.GetBytes("{\"error\":\"not found\"}");
                 }
             }
-            string reason = status == 200 ? "OK" : status == 204 ? "No Content" : status == 404 ? "Not Found" : status == 403 ? "Forbidden" : "Method Not Allowed";
+            string reason = status == 200 ? "OK" : status == 204 ? "No Content" : status == 404 ? "Not Found" : status == 403 ? "Forbidden" :
+                            status == 421 ? "Misdirected Request" : "Method Not Allowed";
+            // CORS only for the widget's origins (no "*": other websites must not read player data)
+            string cors = origin != null && trusted && status != 421
+                ? "Access-Control-Allow-Origin: " + origin + "\r\n" +
+                  "Access-Control-Allow-Methods: GET, OPTIONS\r\n" +
+                  "Access-Control-Allow-Private-Network: true\r\n"
+                : "";
             string hdr = "HTTP/1.1 " + status + " " + reason + "\r\n" +
                          "Content-Type: " + type + "\r\n" +
                          "Content-Length: " + body.Length + "\r\n" +
-                         "Access-Control-Allow-Origin: *\r\n" +
-                         "Access-Control-Allow-Methods: GET, OPTIONS\r\n" +
-                         "Access-Control-Allow-Private-Network: true\r\n" + extraHeaders +
+                         cors + "Vary: Origin\r\n" + extraHeaders +
                          "Cache-Control: no-store\r\n" +
                          "Connection: close\r\n\r\n";
             byte[] h = Encoding.ASCII.GetBytes(hdr);
